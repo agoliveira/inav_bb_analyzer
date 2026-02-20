@@ -1,6 +1,6 @@
 # INAV Flight Analyzer Toolkit
 
-A suite of Python tools for analyzing, validating, and tuning INAV flight controller configurations. Built for the INAV long-range community — 7" to 15" multirotors with GPS navigation.
+A suite of Python tools for analyzing, validating, and tuning INAV flight controller configurations. Built for the INAV long-range community focusing on 7" to 15" multirotors with GPS navigation.
 
 ## Tools
 
@@ -18,11 +18,11 @@ A suite of Python tools for analyzing, validating, and tuning INAV flight contro
 pip install numpy scipy --break-system-packages  # only dependency
 ```
 
-Python 3.8+ required. No other dependencies — all tools are standalone single-file scripts.
+Python 3.8+ required. No other dependencies, all tools are standalone single-file scripts.
 
 ### Blackbox Analyzer
 
-Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python — no `blackbox_decode` needed.
+Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python, no `blackbox_decode` needed.
 
 ```bash
 # Full analysis with HTML report
@@ -142,7 +142,7 @@ Higher voltage (6S/8S/12S) scales P and D down proportionally.
 
 ## INAV Version Support
 
-Developed and tested against **INAV 9.0.x**. The blackbox binary decoder handles the shared Cleanflight/INAV encoding format. Parameter names are INAV-specific — this toolkit does not support Betaflight.
+Developed and tested against **INAV 9.0.x**. The blackbox binary decoder handles the shared Cleanflight/INAV encoding format. Parameter names are INAV-specific, this toolkit does not support Betaflight (yet).
 
 ## Project Structure
 
