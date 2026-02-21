@@ -3832,12 +3832,15 @@ def _analyze_single_log(logfile, args, diff_raw=None):
         try:
             from inav_flight_db import FlightDB
             db = FlightDB(args.db_path)
-            flight_id = db.store_flight(
+            flight_id, is_new = db.store_flight(
                 plan, config, data, hover_osc, motor_analysis,
                 pid_results, noise_results, log_file=logfile, diff_raw=diff_raw)
             craft = config.get("craft_name", "unknown")
             n_flights = db.get_flight_count(craft)
-            print(f"  ✓ Database: flight #{flight_id} for {craft} ({n_flights} total)")
+            if is_new:
+                print(f"  ✓ Database: flight #{flight_id} for {craft} ({n_flights} total)")
+            else:
+                print(f"  ✓ Database: already stored as flight #{flight_id} (skipped duplicate)")
 
             # Show progression if we have history
             if n_flights >= 2:

@@ -167,7 +167,7 @@ class FlightDB:
             diff_raw: Raw CLI diff output string
 
         Returns:
-            flight_id (int)
+            flight_id (int), or existing flight_id if duplicate detected
         """
         conn = self._connect()
         scores = plan.get("scores", {})
@@ -179,6 +179,20 @@ class FlightDB:
         duration = float(data["time_s"][-1]) if "time_s" in data and len(data["time_s"]) > 0 else 0
         sr = data.get("sample_rate", 0)
         total_frames = len(data.get("time_s", []))
+
+        # ── Deduplication ──
+        # Match on log filename + duration + frame count to detect re-analysis
+        # of the same flight. Uses basename so path differences don't matter.
+        if log_file:
+            log_basename = os.path.basename(log_file)
+            existing = conn.execute("""
+                SELECT id FROM flights
+                WHERE craft = ? AND total_frames = ?
+                AND ABS(duration_s - ?) < 0.1
+                AND log_file LIKE ?
+            """, (craft, total_frames, duration, f"%{log_basename}")).fetchone()
+            if existing:
+                return existing[0], False  # (flight_id, is_new=False)
 
         # Insert flight record
         cur = conn.execute("""
@@ -301,7 +315,7 @@ class FlightDB:
             ))
 
         conn.commit()
-        return flight_id
+        return flight_id, True  # (flight_id, is_new=True)
 
     def get_craft_history(self, craft, limit=20):
         """Get flight history for a specific craft, newest first.
