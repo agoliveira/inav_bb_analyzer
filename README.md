@@ -1,14 +1,14 @@
-# INAV Flight Analyzer Toolkit
+# INAV Toolbox
 
-A suite of Python tools for analyzing, validating, and tuning INAV flight controller configurations. Built for the INAV long-range community focusing on 7" to 15" multirotors with GPS navigation.
+A suite of Python tools for analyzing, validating, and tuning INAV flight controller configurations. Built for the INAV long-range community — 7" to 15" multirotors with GPS navigation.
 
 ## Tools
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| **Blackbox Analyzer** | v2.9.0 | Decode blackbox logs, analyze PID performance, recommend tuning changes |
-| **Parameter Analyzer** | v1.1.0 | Validate `diff all` configs for safety, filter, PID, and navigation issues |
-| **VTOL Configurator** | v1.0.1 | Validate VTOL mixer profiles, motor/servo mixing, and transition setup |
+| Tool | Purpose |
+|------|---------|
+| **Blackbox Analyzer** | Decode blackbox logs, analyze PID performance, recommend tuning changes |
+| **Parameter Analyzer** | Validate `diff all` configs for safety, filter, PID, and navigation issues |
+| **VTOL Configurator** | Validate VTOL mixer profiles, motor/servo mixing, and transition setup |
 
 ## Quick Start
 
@@ -18,18 +18,21 @@ A suite of Python tools for analyzing, validating, and tuning INAV flight contro
 pip install numpy scipy --break-system-packages  # only dependency
 ```
 
-Python 3.8+ required. No other dependencies, all tools are standalone single-file scripts.
+Python 3.8+ required. No other dependencies — all tools are standalone single-file scripts.
 
 ### Blackbox Analyzer
 
-Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python, no `blackbox_decode` needed.
+Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python — no `blackbox_decode` needed.
 
 ```bash
-# Full analysis with HTML report
+# Full analysis with HTML report (auto-detects frame size from craft name)
 python3 inav_blackbox_analyzer.py flight.bbl
 
-# Specify frame size for tailored recommendations
+# Override frame size if auto-detection doesn't apply
 python3 inav_blackbox_analyzer.py flight.bbl --frame 10
+
+# Add motor KV for RPM noise prediction (cells auto-detected from vbatref)
+python3 inav_blackbox_analyzer.py flight.bbl --kv 980
 
 # JSON output for automation
 python3 inav_blackbox_analyzer.py flight.bbl --json
@@ -41,6 +44,10 @@ python3 inav_blackbox_analyzer.py flight.bbl --json
 - Motor balance: detects thrust asymmetry
 - Filter phase lag: total delay through the filter chain
 - Tracking error: RMS deviation between setpoint and gyro
+
+**Auto-detection:** Frame size from craft name, battery cells from vbatref, platform type (quad/hex/tri) from motor count. Warns on conflicts between detected and user-specified values.
+
+**Filter-first enforcement:** When filter changes are needed, PID recommendations are deferred until after filters are fixed and a re-fly, preventing the common death spiral of raising D-term gains into wide-open filters.
 
 **Output:** HTML report with plots + `state.json` for cross-referencing with the parameter analyzer.
 
@@ -142,12 +149,12 @@ Higher voltage (6S/8S/12S) scales P and D down proportionally.
 
 ## INAV Version Support
 
-Developed and tested against **INAV 9.0.x**. The blackbox binary decoder handles the shared Cleanflight/INAV encoding format. Parameter names are INAV-specific, this toolkit does not support Betaflight (yet).
+Developed and tested against **INAV 9.0.x**. The blackbox binary decoder handles the shared Cleanflight/INAV encoding format. Parameter names are INAV-specific — this toolkit does not support Betaflight.
 
 ## Project Structure
 
 ```
-inav_bb_analyzer/
+inav-toolbox/
 ├── README.md                        # This file
 ├── CHANGELOG.md                     # Version history
 ├── requirements.txt                 # Python dependencies
@@ -175,4 +182,3 @@ MIT License. See [LICENSE](LICENSE).
 - The INAV development team and community
 - QuadMeUp (Paweł Spychalski) for filter and RPM analysis research
 - The INAV Fixed Wing Group for modes documentation
-- UAV Tech for the spark that gave me the idea to create this
