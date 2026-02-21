@@ -16,6 +16,7 @@ venv/
 !package.json
 
 # Blackbox logs (large binary files)
+blackbox/
 *.bbl
 *.bfl
 *.bbl.gz
