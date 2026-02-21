@@ -8,6 +8,8 @@ All notable changes to INAV Toolkit.
 - **Removed `profile 1` CLI command**: INAV 9 CLI does not support profile switching. The v2.10.0 fix incorrectly emitted `profile 1` before profile-scoped parameters, causing CLI errors.
 
 ### Added
+- **Direct FC communication via MSP**: New `--device` flag downloads blackbox data directly from the flight controller over USB serial. Auto-detects INAV FCs, saves logs with sensible names (craft_timestamp.bbl), and optionally erases dataflash after download. Feeds directly into the analysis pipeline — no more switching to INAV Configurator to download logs.
+- **New module `inav_msp.py`**: Standalone MSP v2 protocol implementation for INAV. Handles FC identification, dataflash summary/read/erase. Can also be used independently for scripting.
 - **Auto-detect frame size from craft name**: Parses the craft name header (e.g., "NAZGUL 10") to automatically determine frame size. No more silent 5" defaults when the log clearly says otherwise.
 - **Frame size conflict warning**: When `--frame` is specified but contradicts the craft name (e.g., `--frame 5` on a "NAZGUL 10" log), the analyzer prints a clear ⚠ warning explaining the mismatch and which value is being used.
 - **Auto-detect battery cells from vbatref**: If `--cells` is not specified, battery cell count is inferred from the blackbox `vbatref` header voltage.

@@ -2630,11 +2630,23 @@ def save_state(filepath, plan, config, data):
 def main():
     parser = argparse.ArgumentParser(description="INAV Blackbox Analyzer v2.1 — Prescriptive Tuning",
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("logfile", help="Blackbox log (.bbl/.bfl/.bbs/.txt or decoded .csv)")
+    parser.add_argument("logfile", nargs="?", default=None,
+                        help="Blackbox log (.bbl/.bfl/.bbs/.txt or decoded .csv). "
+                             "Optional when --device is used.")
     parser.add_argument("-o", "--output", help="HTML report filename")
     parser.add_argument("--no-html", action="store_true")
     parser.add_argument("--no-terminal", action="store_true")
     parser.add_argument("--previous", help="Previous state .json for comparison")
+    # Device communication
+    parser.add_argument("--device", metavar="PORT",
+                        help="Download blackbox from FC via serial. Use 'auto' to scan "
+                             "or specify port (e.g., /dev/ttyACM0).")
+    parser.add_argument("--erase", action="store_true",
+                        help="Erase dataflash after successful download.")
+    parser.add_argument("--download-only", action="store_true",
+                        help="Download blackbox from device but don't analyze.")
+    parser.add_argument("--blackbox-dir", default="./blackbox",
+                        help="Directory to save downloaded logs (default: ./blackbox).")
     # Frame and prop profile arguments
     parser.add_argument("--frame", type=int, metavar="INCHES",
                         help="Frame size in inches (3-15). Determines PID response thresholds. "
@@ -2655,7 +2667,92 @@ def main():
                         help="Omit the plain-English description of the quad's behavior.")
     args = parser.parse_args()
 
+    # ── Device mode: download blackbox from FC ──
     logfile = args.logfile
+    if args.device:
+        try:
+            from inav_msp import INAVDevice, auto_detect_fc, find_serial_ports
+        except ImportError:
+            print("  ERROR: inav_msp.py module not found.")
+            print("    Make sure inav_msp.py is in the same directory as the analyzer.")
+            sys.exit(1)
+
+        print(f"\n  ▲ INAV Blackbox Analyzer v{REPORT_VERSION}")
+
+        if args.device == "auto":
+            print("  Scanning for INAV flight controller...")
+            port, info = auto_detect_fc()
+            if not port:
+                print("  ERROR: No INAV flight controller found.")
+                ports = find_serial_ports()
+                if ports:
+                    print(f"    Ports found but none responded as INAV: {', '.join(ports)}")
+                    print("    Make sure the FC is powered and not in DFU mode.")
+                else:
+                    print("    No serial ports detected. Is the FC connected via USB?")
+                sys.exit(1)
+            print(f"  Found: {port}")
+        else:
+            port = args.device
+            if not os.path.exists(port):
+                print(f"  ERROR: Port not found: {port}")
+                sys.exit(1)
+            print(f"  Connecting: {port}")
+
+        try:
+            with INAVDevice(port) as fc:
+                info = fc.get_info()
+                if not info:
+                    print("  ERROR: No response from FC. Check connection and baud rate.")
+                    sys.exit(1)
+
+                if info.get("fc_variant") != "INAV":
+                    print(f"  ERROR: Not an INAV FC (got: {info.get('fc_variant', '?')})")
+                    sys.exit(1)
+
+                print(f"  Connected: {info['craft_name'] or '(unnamed)'} — {info['firmware']}")
+
+                summary = fc.get_dataflash_summary()
+                if not summary or not summary["supported"]:
+                    print("  ERROR: Dataflash not available on this board.")
+                    sys.exit(1)
+
+                used_kb = summary['used_size'] / 1024
+                total_kb = summary['total_size'] / 1024
+                pct = summary['used_size'] * 100 // summary['total_size'] if summary['total_size'] > 0 else 0
+                print(f"  Dataflash: {used_kb:.0f}KB / {total_kb:.0f}KB ({pct}% used)")
+
+                if summary['used_size'] == 0:
+                    print("  No blackbox data to download.")
+                    sys.exit(0)
+
+                print()
+                filepath = fc.download_blackbox(
+                    output_dir=args.blackbox_dir,
+                    erase_after=args.erase,
+                )
+
+                if not filepath:
+                    print("  ERROR: Download failed.")
+                    sys.exit(1)
+
+                if args.download_only:
+                    print(f"\n  To analyze:\n    python3 {sys.argv[0]} {filepath}")
+                    sys.exit(0)
+
+                logfile = filepath
+                print()  # visual separator before analysis
+
+        except KeyboardInterrupt:
+            print("\n  Interrupted.")
+            sys.exit(1)
+        except Exception as e:
+            print(f"  ERROR: {e}")
+            sys.exit(1)
+
+    if not logfile:
+        parser.error("logfile is required when --device is not specified")
+
     if not os.path.isfile(logfile):
         print(f"ERROR: File not found: {logfile}"); sys.exit(1)
 

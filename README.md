@@ -15,17 +15,27 @@ A suite of Python tools for analyzing, validating, and tuning INAV flight contro
 ### Requirements
 
 ```bash
-pip install numpy scipy --break-system-packages  # only dependency
+pip install numpy scipy --break-system-packages  # core dependency
+pip install pyserial --break-system-packages      # optional: for --device mode
 ```
 
-Python 3.8+ required. No other dependencies — all tools are standalone single-file scripts.
+Python 3.8+ required. All tools are standalone single-file scripts. `pyserial` is only needed when downloading blackbox logs directly from the flight controller.
 
 ### Blackbox Analyzer
 
 Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python — no `blackbox_decode` needed.
 
 ```bash
-# Full analysis with HTML report (auto-detects frame size from craft name)
+# Download from FC and analyze in one step (auto-detects USB port)
+python3 inav_blackbox_analyzer.py --device auto
+
+# Download, analyze, and erase flash for next session
+python3 inav_blackbox_analyzer.py --device auto --erase
+
+# Download only (saves to ./blackbox/, no analysis)
+python3 inav_blackbox_analyzer.py --device auto --download-only
+
+# Full analysis from file (auto-detects frame size from craft name)
 python3 inav_blackbox_analyzer.py flight.bbl
 
 # Override frame size if auto-detection doesn't apply
@@ -159,6 +169,7 @@ inav-toolkit/
 ├── CHANGELOG.md                     # Version history
 ├── requirements.txt                 # Python dependencies
 ├── inav_blackbox_analyzer.py        # Blackbox log analyzer
+├── inav_msp.py                      # MSP v2 serial communication with FC
 ├── inav_param_analyzer.py           # Config validator + setup generator
 ├── inav_vtol_configurator.py        # VTOL mixer profile validator
 ├── docs/
