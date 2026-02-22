@@ -13,12 +13,13 @@ MSP v2 frame format:
   $X>  flag(u8)  cmd(u16 LE)  size(u16 LE)  payload  crc8
 
 Usage:
-    from inav_msp import INAVDevice
+    from inav_msp import INAVDevice, auto_detect_fc
 
-    with INAVDevice("/dev/ttyACM0") as fc:
-        info = fc.get_info()
+    fc, info = auto_detect_fc()  # works on Linux, macOS, Windows
+    if fc:
         print(f"Connected: {info['craft_name']} running {info['firmware']}")
         fc.download_blackbox("./blackbox", erase_after=True)
+        fc.close()
 """
 
 import glob
@@ -132,18 +133,44 @@ def msp_v2_decode(raw):
 def find_serial_ports():
     """Find candidate serial ports for INAV flight controllers.
 
-    Returns list of port paths, ordered by likelihood (ACM first, then USB).
+    Uses pyserial's list_ports for cross-platform discovery (Linux, macOS,
+    Windows). Falls back to glob patterns if list_ports is unavailable.
+
+    Returns list of port paths, ordered by likelihood.
     """
+    # Try pyserial's cross-platform port enumeration first
+    try:
+        from serial.tools import list_ports
+        ports = []
+        for p in sorted(list_ports.comports(), key=lambda x: x.device):
+            # Prioritize known FC USB descriptors
+            desc = (p.description or "").lower()
+            vid = p.vid
+            # STM32 VCP (most INAV FCs): VID 0x0483
+            # CP2102/CH340/FTDI: common USB-serial chips
+            if vid == 0x0483:
+                ports.insert(0, p.device)  # STM32 first
+            elif any(k in desc for k in ("uart", "serial", "cp210", "ch340",
+                                          "ftdi", "usb", "stm", "acm")):
+                ports.append(p.device)
+            elif p.device.startswith(("/dev/ttyACM", "/dev/ttyUSB", "/dev/cu.",
+                                      "COM")):
+                ports.append(p.device)
+        if ports:
+            return ports
+    except ImportError:
+        pass
+
+    # Fallback: glob patterns (Linux/macOS only, Windows has no /dev/)
     candidates = []
-    # USB CDC (STM32 DFU/VCP) - most common for modern FCs
+    # Linux: USB CDC (STM32 DFU/VCP), FTDI/CP2102/CH340
     candidates.extend(sorted(glob.glob("/dev/ttyACM*")))
-    # FTDI / CP2102 / CH340
     candidates.extend(sorted(glob.glob("/dev/ttyUSB*")))
-    # macOS
+    # macOS: various USB-serial drivers
     candidates.extend(sorted(glob.glob("/dev/cu.usbmodem*")))
+    candidates.extend(sorted(glob.glob("/dev/cu.usbserial*")))
     candidates.extend(sorted(glob.glob("/dev/cu.SLAB_USBtoUART*")))
-    # Windows (won't glob but keeping for reference)
-    # COM3, COM4, etc.
+    candidates.extend(sorted(glob.glob("/dev/cu.wchusbserial*")))
     return candidates
 
 
@@ -197,7 +224,8 @@ class INAVDevice:
             import serial
         except ImportError:
             print("  ERROR: pyserial is required for device communication.")
-            print("    Install with: pip install pyserial --break-system-packages")
+            print("    Debian/Ubuntu: sudo apt install python3-serial")
+            print("    Other:         pip install pyserial  (in a venv)")
             sys.exit(1)
 
         self._ser = serial.Serial(
@@ -860,7 +888,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="INAV MSP - Download blackbox logs directly from flight controller")
     parser.add_argument("--device", "-d", default="auto",
-                        help="Serial port (e.g., /dev/ttyACM0) or 'auto' to scan")
+                        help="Serial port or 'auto' to scan. "
+                             "Examples: auto, /dev/ttyACM0 (Linux), "
+                             "/dev/cu.usbmodem14201 (macOS), COM3 (Windows)")
     parser.add_argument("--baud", type=int, default=115200,
                         help="Baud rate (default: 115200)")
     parser.add_argument("--output-dir", "-o", default="./blackbox",
