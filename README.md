@@ -28,11 +28,11 @@ Python 3.8+ required. All tools are standalone scripts with no external dependen
 Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python - no `blackbox_decode` needed.
 
 ```bash
-# Full pipeline: connect to FC, download blackbox, analyze (diff pulled automatically)
-python3 inav_blackbox_analyzer.py --device auto
+# Full pipeline: connect to FC, pull config diff, download blackbox, analyze
+python3 inav_blackbox_analyzer.py --device auto --diff
 
 # Download, analyze, and erase flash for next session
-python3 inav_blackbox_analyzer.py --device auto --erase
+python3 inav_blackbox_analyzer.py --device auto --diff --erase
 
 # Download only (saves to ./blackbox/, no analysis)
 python3 inav_blackbox_analyzer.py --device auto --download-only
@@ -55,6 +55,9 @@ python3 inav_blackbox_analyzer.py flight.bbl --kv 980
 # Skip database storage for one-off analysis
 python3 inav_blackbox_analyzer.py flight.bbl --no-db
 
+# Navigation health analysis (compass, GPS, baro, estimator)
+python3 inav_blackbox_analyzer.py flight.bbl --nav
+
 # Custom database path
 python3 inav_blackbox_analyzer.py flight.bbl --db-path ~/my_flights.db
 ```
@@ -67,9 +70,17 @@ python3 inav_blackbox_analyzer.py flight.bbl --db-path ~/my_flights.db
 - **Filter phase lag:** Total delay through the filter chain
 - **Tracking error:** RMS deviation between setpoint and gyro
 
+**Navigation health analysis** (`--nav`): Separate analysis mode that checks sensor health from any flight - no poshold/RTH required. Runs independently from PID tuning with its own terminal output and HTML report.
+- **Compass:** Heading jitter, motor EMI correlation (throttle vs heading), drift rate
+- **GPS:** Satellite count, EPH/EPV, position jumps
+- **Barometer:** Noise RMS, propwash correlation, altitude spikes
+- **Estimator:** navPos vs BaroAlt divergence detection
+- **Toilet bowl detector:** Phase-gated position drift analysis for poshold flights
+- **Tuning prerequisite check:** Warns when PID oscillation is polluting nav sensor readings
+
 **Multi-log splitting:** Dataflash dumps containing multiple arm/disarm cycles are automatically detected and split. Each flight is analyzed individually with per-flight progression tracking.
 
-**CLI diff merge:** When connected to the FC via `--device`, the analyzer automatically pulls the full `diff all` configuration. Settings not present in blackbox headers (motor_poles, nav PIDs, rates, level mode, antigravity) are enriched from the diff. Mismatches between what was flying and the current FC config are detected and displayed.
+**CLI diff merge:** When using `--diff` with `--device`, the analyzer pulls the full `diff all` from the FC. Settings not present in blackbox headers (motor_poles, nav PIDs, rates, level mode, antigravity) are enriched from the diff. Mismatches between what was flying and the current FC config are detected and displayed.
 
 **Flight database:** Every analysis is stored in a SQLite database (`inav_flights.db`). Scores, per-axis oscillation data, PID values, filter config, motor balance, and recommended actions are tracked per flight. The `--history` flag shows a progression table.
 
@@ -179,7 +190,7 @@ The tools are designed to work together in a tuning pipeline:
       → Nav segment for position hold / RTH data
 
 4. PID TUNING (one-step with FC connected)
-   └─ blackbox_analyzer --device auto --erase
+   └─ blackbox_analyzer --device auto --diff --erase
       → Downloads blackbox, pulls current config
       → Splits multi-log files automatically
       → Detects hover oscillation first
@@ -218,7 +229,7 @@ inav-toolkit/
 ├── README.md                        # This file
 ├── CHANGELOG.md                     # Version history
 ├── requirements.txt                 # Python dependencies
-├── inav_blackbox_analyzer.py        # Blackbox log analyzer (v2.12.1)
+├── inav_blackbox_analyzer.py        # Blackbox log analyzer (v2.13.0)
 ├── inav_msp.py                      # MSP v2 serial communication with FC
 ├── inav_flight_db.py                # SQLite flight history database
 ├── inav_param_analyzer.py           # Config validator + setup generator
@@ -233,7 +244,7 @@ inav-toolkit/
 
 ## Contributing
 
-This is an active project. The navigation analyzer module is planned for future development, along with potential Raspberry Pi-based autonomous tuning.
+This is an active project. Planned next: per-phase nav analysis for poshold/RTH/waypoint flights, and potential Raspberry Pi-based autonomous tuning.
 
 ## License
 

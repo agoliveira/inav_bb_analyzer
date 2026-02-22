@@ -2,14 +2,24 @@
 
 All notable changes to INAV Toolkit.
 
-## [2026-02-22] - Blackbox Analyzer v2.12.1
+## [2026-02-22] - Blackbox Analyzer v2.13.0
 
-### Fixed
-- **MSP download speed regression**: Fixed 100x speed drop (2 KB/s vs 200 KB/s) when downloading blackbox through the analyzer. Root cause: `_recv()` hot-spun at 100% CPU when the serial buffer held a partial MSP frame with no new data arriving. In the lightweight standalone `inav_msp.py` process this was harmless, but in the analyzer process (89,000+ GC-tracked objects from numpy/scipy/matplotlib) the spin competed with Python's garbage collector and OS USB interrupt servicing, causing FC USB flow control back-pressure. Fix: 200us sleep when waiting for partial frame completion.
-- **Em dash cleanup**: Replaced all Unicode em dashes with ASCII hyphens across all source files and documentation.
+### Added
+- **Navigation health analysis** (`--nav` flag): Separate analysis mode for compass, GPS, barometer, and position estimator health. Runs independently from tuning - no PID/noise/filter output. Detects motor EMI on compass (throttle-heading correlation), GPS position jumps, baro noise, and estimator divergence. Weighted nav score (compass 30%, GPS 25%, baro 25%, estimator 20%).
+- **Compass EMI detector**: Correlates heading jitter with throttle changes to detect motor electromagnetic interference. Downsamples heading to compass update rate (~50Hz) to avoid quantization artifacts from 1000Hz logging.
+- **Toilet bowl / salad bowl detector**: For poshold flights only (phase-gated), detects circular drift from compass miscalibration. Uses angular rotation rate and spectral analysis of position error.
+- **GPS quality analyzer**: Tracks EPH, satellite count from decoded GPS frames, and position jumps.
+- **Barometer quality analyzer**: Measures baro noise RMS, propwash correlation, and altitude spikes.
+- **Position estimator health check**: Compares navPos altitude with barometer to detect estimator divergence.
+- **Altitude and position hold analysis**: Phase-gated - only runs during detected nav-controlled phases (navState > 1 for >5s), not during manual flight.
+- **Flight phase segmentation**: Segments flight using navState from I-frame data.
+- **Standalone nav HTML report**: `--nav` generates a dedicated `_nav_report.html` with dark theme, score card, and findings.
 
 ### Changed
-- **Automatic diff pull on --device**: `diff all` is now pulled automatically when the FC is connected (previously required explicit `--diff` flag). Enables session detection, CONFIG REVIEW, and mismatch detection without extra flags.
+- **`--nav` is a separate mode**: No tuning output (PIDs, filters, noise, action plan, CLI commands) when `--nav` is used. Clean separation between tuning and navigation analysis.
+- **Multi-flight handling in nav mode**: Skips the tuning summary scan table, analyzes the last flight directly.
+- **Decoder: navigation field mapping**: Extended col_map in both binary and CSV decoders to extract 30+ navigation fields from I/P frames (navPos, navVel, navTgtPos, navTgtVel, navAcc, attitude, BaroAlt, navState, navFlags, navEPH/EPV, accSmooth, rcData, vbat, amperage, rssi).
+- **Decoder: S-frame and G-frame decoding**: Slow frames (flight mode flags) and GPS frames (satellite data) are now decoded and stored instead of skipped. Raw values returned (no I-frame predictor applied).
 
 ## [2026-02-21] - Blackbox Analyzer v2.12.0
 
