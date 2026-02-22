@@ -1,4 +1,4 @@
-# VTOL Configurator — Detailed Documentation
+# VTOL Configurator - Detailed Documentation
 
 ## Overview
 

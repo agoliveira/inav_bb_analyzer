@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-INAV VTOL Configurator — Validate and configure VTOL mixer profiles.
+INAV VTOL Configurator - Validate and configure VTOL mixer profiles.
 
 Reads an INAV `diff all`, validates the two mixer profiles (MC + FW),
 checks for common VTOL configuration mistakes, and optionally runs
@@ -432,12 +432,12 @@ def run_vtol_checks(parsed):
     # Check FW motor mix
     fw_active = [m for m in fw_mmix if m["throttle"] > 0]
     if len(fw_active) == 1:
-        # Single pusher — normal
+        # Single pusher - normal
         findings.append(Finding(
             OK, "Motor Mix", f"FW profile: single motor (pusher)",
             f"Motor {fw_active[0]['index']+1} is the forward-flight motor."))
     elif len(fw_active) >= 2:
-        # Multi-motor FW — check for differential thrust
+        # Multi-motor FW - check for differential thrust
         yaw_fw = [m for m in fw_active if m["yaw"] != 0]
         if not yaw_fw:
             findings.append(Finding(
@@ -450,7 +450,7 @@ def run_vtol_checks(parsed):
         findings.append(Finding(
             OK, "Motor Roles",
             f"Tilt motors: {sorted(roles['tilt_motors'])} (used in both MC and FW profiles)",
-            "These motors are active in both profiles — they tilt between hover and forward flight."))
+            "These motors are active in both profiles - they tilt between hover and forward flight."))
     if roles["lift_only"]:
         findings.append(Finding(
             OK, "Motor Roles",
@@ -710,9 +710,9 @@ def print_report(parsed, findings):
 
     print(f"\n  {B}SUMMARY:{R}")
     if counts[CRITICAL]:
-        print(f"    {RED}{B}{counts[CRITICAL]} CRITICAL{R} — fix before flying")
+        print(f"    {RED}{B}{counts[CRITICAL]} CRITICAL{R} - fix before flying")
     if counts[WARNING]:
-        print(f"    {Y}{B}{counts[WARNING]} WARNING{R} — should address")
+        print(f"    {Y}{B}{counts[WARNING]} WARNING{R} - should address")
     if counts[INFO]:
         print(f"    {C}{counts[INFO]} suggestions{R}")
     if counts[OK]:
@@ -771,7 +771,7 @@ def print_report(parsed, findings):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"INAV VTOL Configurator v{VERSION} — Validate VTOL mixer profiles",
+        description=f"INAV VTOL Configurator v{VERSION} - Validate VTOL mixer profiles",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
             Validates INAV VTOL configuration from a diff all file.

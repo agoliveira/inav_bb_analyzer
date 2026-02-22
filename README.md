@@ -1,6 +1,6 @@
 # INAV Toolkit
 
-A suite of Python tools for analyzing, validating, and tuning INAV flight controller configurations. Built for the INAV long-range community — 7" to 15" multirotors with GPS navigation.
+A suite of Python tools for analyzing, validating, and tuning INAV flight controller configurations. Built for the INAV long-range community - 7" to 15" multirotors with GPS navigation.
 
 ## Tools
 
@@ -10,7 +10,7 @@ A suite of Python tools for analyzing, validating, and tuning INAV flight contro
 | **Parameter Analyzer** | Validate `diff all` configs for safety, filter, PID, and navigation issues |
 | **VTOL Configurator** | Validate VTOL mixer profiles, motor/servo mixing, and transition setup |
 | **Flight Database** | SQLite storage for flight history, progression tracking across tuning sessions |
-| **MSP Communication** | Direct FC communication — download blackbox, pull config, identify hardware |
+| **MSP Communication** | Direct FC communication - download blackbox, pull config, identify hardware |
 
 ## Quick Start
 
@@ -25,14 +25,14 @@ Python 3.8+ required. All tools are standalone scripts with no external dependen
 
 ### Blackbox Analyzer
 
-Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python — no `blackbox_decode` needed.
+Analyzes binary blackbox logs (`.bbl` / `.bfl`) from INAV. Decodes natively in Python - no `blackbox_decode` needed.
 
 ```bash
-# Full pipeline: connect to FC, pull config diff, download blackbox, analyze
-python3 inav_blackbox_analyzer.py --device auto --diff
+# Full pipeline: connect to FC, download blackbox, analyze (diff pulled automatically)
+python3 inav_blackbox_analyzer.py --device auto
 
 # Download, analyze, and erase flash for next session
-python3 inav_blackbox_analyzer.py --device auto --diff --erase
+python3 inav_blackbox_analyzer.py --device auto --erase
 
 # Download only (saves to ./blackbox/, no analysis)
 python3 inav_blackbox_analyzer.py --device auto --download-only
@@ -69,13 +69,13 @@ python3 inav_blackbox_analyzer.py flight.bbl --db-path ~/my_flights.db
 
 **Multi-log splitting:** Dataflash dumps containing multiple arm/disarm cycles are automatically detected and split. Each flight is analyzed individually with per-flight progression tracking.
 
-**CLI diff merge:** When using `--diff` with `--device`, the analyzer pulls the full `diff all` from the FC. Settings not present in blackbox headers (motor_poles, nav PIDs, rates, level mode, antigravity) are enriched from the diff. Mismatches between what was flying and the current FC config are detected and displayed.
+**CLI diff merge:** When connected to the FC via `--device`, the analyzer automatically pulls the full `diff all` configuration. Settings not present in blackbox headers (motor_poles, nav PIDs, rates, level mode, antigravity) are enriched from the diff. Mismatches between what was flying and the current FC config are detected and displayed.
 
 **Flight database:** Every analysis is stored in a SQLite database (`inav_flights.db`). Scores, per-axis oscillation data, PID values, filter config, motor balance, and recommended actions are tracked per flight. The `--history` flag shows a progression table.
 
 **Auto-detection:** Frame size from craft name, battery cells from vbatref, platform type (quad/hex/tri) from motor count. Warns on conflicts between detected and user-specified values.
 
-**Oscillation-first enforcement:** When hover oscillation is detected, the analyzer generates aggressive P/D reductions as top-priority actions and defers regular PID recommendations on oscillating axes — you can't tune what you can't stabilize.
+**Oscillation-first enforcement:** When hover oscillation is detected, the analyzer generates aggressive P/D reductions as top-priority actions and defers regular PID recommendations on oscillating axes - you can't tune what you can't stabilize.
 
 **Filter-first enforcement:** When filter changes are needed, PID recommendations are deferred until after filters are fixed and a re-fly, preventing the common death spiral of raising D-term gains into wide-open filters.
 
@@ -179,7 +179,7 @@ The tools are designed to work together in a tuning pipeline:
       → Nav segment for position hold / RTH data
 
 4. PID TUNING (one-step with FC connected)
-   └─ blackbox_analyzer --device auto --diff --erase
+   └─ blackbox_analyzer --device auto --erase
       → Downloads blackbox, pulls current config
       → Splits multi-log files automatically
       → Detects hover oscillation first
@@ -209,7 +209,7 @@ Higher voltage (6S/8S/12S) scales P and D down proportionally.
 
 ## INAV Version Support
 
-Developed and tested against **INAV 9.0.x**. The blackbox binary decoder handles the shared Cleanflight/INAV encoding format. MSP v2 protocol for FC communication. Parameter names are INAV-specific — this toolkit does not support Betaflight.
+Developed and tested against **INAV 9.0.x**. The blackbox binary decoder handles the shared Cleanflight/INAV encoding format. MSP v2 protocol for FC communication. Parameter names are INAV-specific - this toolkit does not support Betaflight.
 
 ## Project Structure
 
@@ -218,7 +218,7 @@ inav-toolkit/
 ├── README.md                        # This file
 ├── CHANGELOG.md                     # Version history
 ├── requirements.txt                 # Python dependencies
-├── inav_blackbox_analyzer.py        # Blackbox log analyzer (v2.12.0)
+├── inav_blackbox_analyzer.py        # Blackbox log analyzer (v2.12.1)
 ├── inav_msp.py                      # MSP v2 serial communication with FC
 ├── inav_flight_db.py                # SQLite flight history database
 ├── inav_param_analyzer.py           # Config validator + setup generator

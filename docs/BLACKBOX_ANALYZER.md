@@ -1,4 +1,4 @@
-# Blackbox Analyzer — Detailed Documentation
+# Blackbox Analyzer - Detailed Documentation
 
 ## Overview
 
@@ -30,7 +30,7 @@ The analyzer includes a native Python decoder for the INAV/Cleanflight blackbox 
 - I-frame and P-frame (delta) decoding
 - Automatic field definition parsing from log headers
 
-**Decoded fields include:** gyro (raw/filtered), setpoint, motor outputs, PID terms (P/I/D per axis), RC commands, battery voltage/current, GPS position, nav state, and more — depending on what's enabled in blackbox settings.
+**Decoded fields include:** gyro (raw/filtered), setpoint, motor outputs, PID terms (P/I/D per axis), RC commands, battery voltage/current, GPS position, nav state, and more - depending on what's enabled in blackbox settings.
 
 ## Analysis Modules
 
@@ -43,7 +43,7 @@ Detects discrete stick inputs (steps) in setpoint data and measures the gyro res
 - **Delay:** Time from setpoint change to first gyro response. Dominated by filter phase lag.
 - **Rise time:** 10% to 90% of target value. Slow rise = P too low.
 
-Step detection requires clean, discrete stick movements. Continuous stick input (freestyle) may not yield measurable steps — the analyzer reports N/A in this case.
+Step detection requires clean, discrete stick movements. Continuous stick input (freestyle) may not yield measurable steps - the analyzer reports N/A in this case.
 
 ### Noise Spectral Analysis
 

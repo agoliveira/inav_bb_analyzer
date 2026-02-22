@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-INAV Blackbox Analyzer — Multirotor Tuning Tool v2.12.0
+INAV Blackbox Analyzer - Multirotor Tuning Tool v2.12.1
 =====================================================
 Analyzes INAV blackbox logs and tells you EXACTLY what to change.
 
@@ -32,13 +32,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*tight_layout.*")
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 AXIS_NAMES = ["Roll", "Pitch", "Yaw"]
 AXIS_COLORS = ["#FF6B6B", "#4ECDC4", "#FFD93D"]
 MOTOR_COLORS = ["#FF6B6B", "#4ECDC4", "#FFD93D", "#A78BFA"]
-REPORT_VERSION = "2.12.0"
+REPORT_VERSION = "2.12.1"
 
 # ─── Frame and Prop Profiles ─────────────────────────────────────────────────
 # Two separate concerns:
@@ -215,7 +216,7 @@ def get_frame_profile(frame_inches=None, prop_inches=None, n_blades=3):
     frame = FRAME_PROFILES[frame_key]
     prop_noise = PROP_NOISE_PROFILES[prop_key]
 
-    # Blade count affects filter ranges — more blades push harmonics higher,
+    # Blade count affects filter ranges - more blades push harmonics higher,
     # which actually gives more room between signal and noise.
     # 2-blade = baseline. 3-blade = harmonics 1.5× higher. Adjust ranges up.
     blade_factor = n_blades / 2.0  # 1.0 for biblade, 1.5 for triblade
@@ -387,7 +388,7 @@ def estimate_filter_phase_lag(filter_hz, signal_freq, filter_type="PT1", q=None)
 
 def estimate_total_phase_lag(config, profile, signal_freq=50.0):
     """Estimate total phase lag through the entire filter chain at a given frequency.
-    This is the key metric for large quads — too much lag and the PID loop fights itself."""
+    This is the key metric for large quads - too much lag and the PID loop fights itself."""
 
     total_deg = 0.0
     total_ms = 0.0
@@ -498,22 +499,22 @@ INAV_PARAM_MAP = {
     "roll_p": "roll_p", "roll_i": "roll_i", "roll_d": "roll_d",
     "pitch_p": "pitch_p", "pitch_i": "pitch_i", "pitch_d": "pitch_d",
     "yaw_p": "yaw_p", "yaw_i": "yaw_i", "yaw_d": "yaw_d",
-    # Filter settings (underscore format — Betaflight-style headers)
+    # Filter settings (underscore format - Betaflight-style headers)
     "gyro_lpf": "gyro_lpf_type", "gyro_hardware_lpf": "gyro_hw_lpf",
     "gyro_lowpass_hz": "gyro_lowpass_hz", "gyro_lowpass_type": "gyro_lowpass_type",
     "gyro_lowpass2_hz": "gyro_lowpass2_hz", "gyro_lowpass2_type": "gyro_lowpass2_type",
     "dterm_lpf_hz": "dterm_lpf_hz", "dterm_lpf_type": "dterm_lpf_type",
     "dterm_lpf2_hz": "dterm_lpf2_hz", "dterm_lpf2_type": "dterm_lpf2_type",
     "yaw_lpf_hz": "yaw_lpf_hz",
-    # Filter settings (camelCase — INAV 9.x blackbox header format)
+    # Filter settings (camelCase - INAV 9.x blackbox header format)
     "gyro_lpf_hz": "gyro_lowpass_hz",
-    # Dynamic notch (underscore — Betaflight-style)
+    # Dynamic notch (underscore - Betaflight-style)
     "dyn_notch_width_percent": "dyn_notch_width", "dyn_notch_q": "dyn_notch_q",
     "dyn_notch_min_hz": "dyn_notch_min_hz", "dyn_notch_max_hz": "dyn_notch_max_hz",
     "dynamic_gyro_notch_enabled": "dyn_notch_enabled",
     "dynamic_gyro_notch_q": "dyn_notch_q",
     "dynamic_gyro_notch_min_hz": "dyn_notch_min_hz",
-    # Dynamic notch (camelCase — INAV blackbox headers)
+    # Dynamic notch (camelCase - INAV blackbox headers)
     "dynamicGyroNotchQ": "dyn_notch_q",
     "dynamicGyroNotchMinHz": "dyn_notch_min_hz",
     "dynamicGyroNotchEnabled": "dyn_notch_enabled",
@@ -523,7 +524,7 @@ INAV_PARAM_MAP = {
     "rpm_gyro_harmonics": "rpm_filter_harmonics",
     "rpm_gyro_min_hz": "rpm_filter_min_hz",
     "rpm_gyro_q": "rpm_filter_q",
-    # PID headers (camelCase INAV format — parsed separately below)
+    # PID headers (camelCase INAV format - parsed separately below)
     "rollPID": "_rollPID", "pitchPID": "_pitchPID", "yawPID": "_yawPID",
     # Timing
     "looptime": "looptime", "gyro_sync_denom": "gyro_sync_denom",
@@ -646,6 +647,22 @@ def extract_fc_config(raw_params):
     if config.get("gyro_lowpass_type") is None or config.get("gyro_lowpass_type") == 0:
         config.setdefault("gyro_lowpass_type", "PT1")  # safe default
 
+    # Parse motor output range from header: "motorOutput = 1080,2000"
+    mo = raw_params.get("motorOutput", "")
+    if "," in mo:
+        try:
+            parts = mo.split(",")
+            config["motor_output_low"] = int(parts[0].strip())
+            config["motor_output_high"] = int(parts[1].strip())
+        except (ValueError, IndexError):
+            pass
+    mt = raw_params.get("minthrottle")
+    if mt:
+        try:
+            config["minthrottle"] = int(mt)
+        except ValueError:
+            pass
+
     # Map numeric motor protocol to name for DSHOT detection
     # INAV: 0=PWM, 1=ONESHOT125, 2=ONESHOT42, 3=MULTISHOT, 4=BRUSHED,
     #        5=DSHOT150, 6=DSHOT300, 7=DSHOT600, 8=DSHOT1200
@@ -676,7 +693,7 @@ def config_has_filters(config):
 # ── CLI diff → config merge ──────────────────────────────────────────────────
 
 # Reverse map: INAV CLI setting name → our internal config key
-# This is comprehensive — covers PID, filters, rates, nav, motors, and more
+# This is comprehensive - covers PID, filters, rates, nav, motors, and more
 CLI_TO_CONFIG = {
     # PID gains (multicopter)
     "mc_p_roll": "roll_p", "mc_i_roll": "roll_i", "mc_d_roll": "roll_d",
@@ -826,7 +843,7 @@ def merge_diff_into_config(config, diff_raw):
 
         existing = config.get(config_key)
         if existing is not None:
-            # Blackbox header has this value — keep it, store diff as reference
+            # Blackbox header has this value - keep it, store diff as reference
             config[f"_diff_{config_key}"] = val
             # Detect mismatch (compare numerically if possible)
             try:
@@ -836,7 +853,7 @@ def merge_diff_into_config(config, diff_raw):
                 if str(existing) != str(val):
                     mismatches.append((config_key, existing, val))
         else:
-            # New setting not in blackbox headers — add it
+            # New setting not in blackbox headers - add it
             config[config_key] = val
             merged += 1
 
@@ -851,7 +868,7 @@ def merge_diff_into_config(config, diff_raw):
 # ─── Blackbox Decode ──────────────────────────────────────────────────────────
 
 # ─── Native Blackbox Binary Decoder ─────────────────────────────────────────
-# Decodes .bbl/.bfl/.bbs binary logs directly — no external tools needed.
+# Decodes .bbl/.bfl/.bbs binary logs directly - no external tools needed.
 # Implements the INAV/Betaflight blackbox encoding: variable-byte integers,
 # ZigZag signed encoding, grouped tag encodings (TAG2_3S32, TAG8_4S16,
 # TAG8_8SVB), I-frame/P-frame predictors, and frame type dispatching.
@@ -1230,11 +1247,11 @@ class BlackboxDecoder:
                 self._read_unsigned_vb()  # flags
                 self._read_unsigned_vb()  # lastFlags
             elif evt_type == self.EVT_LOG_END:
-                # End of this log — scan for next set of headers or EOF
+                # End of this log - scan for next set of headers or EOF
                 self._skip_to_next_log()
                 return 'log_end'
             else:
-                # Unknown event type — try to resync
+                # Unknown event type - try to resync
                 self._resync()
             return 'ok'
         except (IndexError, ValueError):
@@ -1270,13 +1287,13 @@ class BlackboxDecoder:
     def _validate_i_frame(self, values):
         """Sanity check I-frame values. Returns False if clearly garbage."""
         n = len(values)
-        # Check motor[0] — should be near minthrottle..maxthrottle range
+        # Check motor[0] - should be near minthrottle..maxthrottle range
         if self._motor0_idx is not None and self._motor0_idx < n:
             m0 = values[self._motor0_idx]
             max_motor = self._int_param('maxthrottle', 2000)
             if m0 < self.minthrottle - 200 or m0 > max_motor + 500:
                 return False
-        # Check time (field 1) — should be non-negative and < 1 hour in us
+        # Check time (field 1) - should be non-negative and < 1 hour in us
         if n > 1:
             t = values[1]
             if t < 0 or t > 3600_000_000:
@@ -1302,7 +1319,7 @@ class BlackboxDecoder:
 
         # Progress tracking
         last_pct = -1
-        show_progress = self.end > 500_000  # only for files > 500KB
+        show_progress = self.end > 500_000 and not getattr(self, '_quiet', False)
 
         while self.pos < self.end:
             # Progress indicator
@@ -1334,7 +1351,7 @@ class BlackboxDecoder:
                         self.stats['i_frames'] += 1
                         consec_errors = 0
                     else:
-                        # Invalid I-frame — likely false positive from resync
+                        # Invalid I-frame - likely false positive from resync
                         self.stats['errors'] += 1
                         self.pos = saved
                         if not self._resync(): break
@@ -1382,7 +1399,7 @@ class BlackboxDecoder:
 
             elif byte == self.FRAME_H:
                 self.pos += 1
-                # GPS Home frame — read its field definitions
+                # GPS Home frame - read its field definitions
                 if self.g_def:
                     # H-frame has its own field definition
                     h_def = self._parse_field_def('H')
@@ -1496,27 +1513,31 @@ class BlackboxDecoder:
         return data
 
 
-def decode_blackbox_native(filepath, raw_params):
+def decode_blackbox_native(filepath, raw_params, quiet=False):
     """Decode a blackbox binary log file using the native decoder.
     Returns a data dict in the same format as parse_csv_log."""
     decoder = BlackboxDecoder(raw_params)
+    decoder._quiet = quiet
     frames, field_names = decoder.decode_file(filepath)
 
     total = decoder.stats['i_frames'] + decoder.stats['p_frames']
     if total == 0:
-        print("  ERROR: No frames decoded from blackbox log.")
-        print(f"    Stats: {decoder.stats}")
+        if not quiet:
+            print("  ERROR: No frames decoded from blackbox log.")
+            print(f"    Stats: {decoder.stats}")
         sys.exit(1)
 
-    print(f"  Decoded: {total:,} frames "
-          f"({decoder.stats['i_frames']} I + {decoder.stats['p_frames']} P)")
-    if decoder.stats['skipped_events'] or decoder.stats['skipped_gps']:
-        print(f"    Skipped: {decoder.stats['skipped_events']} event, "
-              f"{decoder.stats['skipped_slow']} slow, {decoder.stats['skipped_gps']} GPS")
+    if not quiet:
+        print(f"  Decoded: {total:,} frames "
+              f"({decoder.stats['i_frames']} I + {decoder.stats['p_frames']} P)")
+        if decoder.stats['skipped_events'] or decoder.stats['skipped_gps']:
+            print(f"    Skipped: {decoder.stats['skipped_events']} event, "
+                  f"{decoder.stats['skipped_slow']} slow, {decoder.stats['skipped_gps']} GPS")
 
     data = decoder.frames_to_data_dict(frames, field_names)
     if data is None:
-        print("  ERROR: Failed to convert decoded frames to analysis data.")
+        if not quiet:
+            print("  ERROR: Failed to convert decoded frames to analysis data.")
         sys.exit(1)
 
     return data
@@ -1653,7 +1674,7 @@ def measure_tracking_delay_xcorr(sp, gy, sr, max_delay_ms=200):
     if len(sp) < 500:
         return None
 
-    # High-pass filter to remove DC/drift — we only care about dynamics
+    # High-pass filter to remove DC/drift - we only care about dynamics
     # Simple differencing acts as a high-pass filter
     sp_hp = np.diff(sp.astype(np.float64))
     gy_hp = np.diff(gy.astype(np.float64))
@@ -1779,7 +1800,7 @@ def detect_hover_oscillation(data, sr):
         if len(hover_gyro) < min_hover_samples:
             continue
 
-        # Remove DC offset (mean) — we care about oscillation, not steady drift
+        # Remove DC offset (mean) - we care about oscillation, not steady drift
         hover_gyro = hover_gyro - np.mean(hover_gyro)
 
         # Amplitude metrics
@@ -1915,7 +1936,7 @@ def analyze_pid_response(data, axis_idx, sr):
             "setpoint": sp, "gyro": gy, "pid_stats": pid_stats}
 
 
-def analyze_motors(data, sr):
+def analyze_motors(data, sr, config=None):
     motors = []
     for i in range(4):
         key = f"motor{i}"
@@ -1925,7 +1946,25 @@ def analyze_motors(data, sr):
         return None
 
     global_max = np.nanmax(np.array(motors))
-    motor_min, motor_max = (1000, 2000) if global_max > 1500 else (0, int(global_max * 1.05)) if global_max > 100 else (0, 100)
+    global_min = np.nanmin(np.array(motors))
+
+    # Use header-provided motor output range if available (most accurate)
+    motor_lo = config.get("motor_output_low") if config else None
+    motor_hi = config.get("motor_output_high") if config else None
+
+    if motor_lo is not None and motor_hi is not None and motor_hi > motor_lo:
+        motor_min, motor_max = motor_lo, motor_hi
+    elif global_max > 1500:
+        motor_min, motor_max = 1000, 2000
+    elif global_max > 100:
+        # Ambiguous range - try to infer from minthrottle
+        minthrottle = config.get("minthrottle") if config else None
+        if minthrottle and minthrottle > 900:
+            motor_min, motor_max = minthrottle, 2000
+        else:
+            motor_min, motor_max = 0, 1000
+    else:
+        motor_min, motor_max = 0, 100
     span = max(1, motor_max - motor_min)
 
     results = []
@@ -1933,12 +1972,20 @@ def analyze_motors(data, sr):
         clean = m[~np.isnan(m)]
         if len(clean) == 0:
             continue
-        pct = (clean - motor_min) / span * 100
+        pct = np.clip((clean - motor_min) / span * 100, 0, 100)
+        std_raw = float(np.std(clean))
         results.append({
             "motor": i + 1, "avg_pct": float(np.mean(pct)), "std_pct": float(np.std(pct)),
             "saturation_pct": float(np.sum(pct > 95) / len(pct) * 100),
             "min_pct": float(np.min(pct)), "normalized": pct, "raw": clean,
         })
+
+    # Detect idle/ground: motors at or near minthrottle with no meaningful variation
+    # This happens during arm-on-ground, pre-takeoff, or failed arm attempts
+    all_stds = [r["std_pct"] for r in results]
+    all_avgs = [r["avg_pct"] for r in results]
+    idle_detected = (len(all_stds) > 0 and max(all_stds) < 3.0 and
+                     len(all_avgs) > 0 and max(all_avgs) < 15.0)
 
     avgs = [r["avg_pct"] for r in results]
     spread = max(avgs) - min(avgs) if len(avgs) >= 2 else 0
@@ -1951,7 +1998,8 @@ def analyze_motors(data, sr):
 
     return {"n_motors": len(results), "motors": results, "balance_spread_pct": spread,
             "motor_range": (motor_min, motor_max),
-            "worst_motor": worst_motor, "worst_direction": worst_direction}
+            "worst_motor": worst_motor, "worst_direction": worst_direction,
+            "idle_detected": idle_detected}
 
 
 def analyze_dterm_noise(data, sr):
@@ -2033,7 +2081,7 @@ def compute_recommended_pid(pid_result, current_p, current_i, current_d, profile
                 settle = f", higher D helps it settle" if has_d else ""
                 reasons.append(
                     f"Overshoot is {os_pct:.0f}% (target: <{ok_os}%) and delay is {delay:.0f}ms. "
-                    f"Fixing overshoot first — lower P reduces the bounce{settle}.")
+                    f"Fixing overshoot first - lower P reduces the bounce{settle}.")
             elif os_bad:
                 reasons.append(
                     f"Overshoot is {os_pct:.0f}% (target: <{ok_os}%). "
@@ -2044,7 +2092,7 @@ def compute_recommended_pid(pid_result, current_p, current_i, current_d, profile
                     f"A small P reduction{d_hint} should tighten this up.")
 
             # max_change limits P increases (delay fix), but overshoot reduction
-            # can exceed it — the quad is ALREADY oscillating, we need meaningful correction.
+            # can exceed it - the quad is ALREADY oscillating, we need meaningful correction.
             p_cut = min(raw_cut, max(max_change, 0.20))  # at least 20% reduction allowed
             new_p = int(current_p * (1 - p_cut))
 
@@ -2105,6 +2153,27 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
     actions = []
     if profile is None:
         profile = get_frame_profile(5)
+
+    # ── Idle/ground detection: quad armed but never flew ──
+    # All analysis is meaningless for ground segments - noise floor of a
+    # stationary quad tells us nothing, filter/PID recommendations are bogus.
+    is_idle = motor_analysis and motor_analysis.get("idle_detected", False)
+    duration = data["time_s"][-1] if "time_s" in data and len(data["time_s"]) > 0 else 0
+
+    if is_idle:
+        return {
+            "actions": [], "info": [],
+            "scores": {
+                "overall": None, "noise": None, "pid": None,
+                "pid_measurable": False, "gyro_oscillation": None,
+                "hover_osc": hover_osc or [], "motor": None,
+            },
+            "verdict": "GROUND_ONLY",
+            "verdict_text": ("Motors were at idle throughout this log - the quad was armed "
+                             "but never flew. No tuning analysis is possible. "
+                             "Fly with throttle above hover, then re-analyze."),
+        }
+
     has_config = config_has_pid(config)
     has_filters = config_has_filters(config)
     ok_os = profile["ok_overshoot"]
@@ -2114,7 +2183,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
     ok_noise = profile["ok_noise_db"]
     bad_noise = profile["bad_noise_db"]
 
-    # ── Hover oscillation (highest priority — can't tune if quad won't hold still) ──
+    # ── Hover oscillation (highest priority - can't tune if quad won't hold still) ──
     if hover_osc:
         for osc in hover_osc:
             if osc["severity"] == "none":
@@ -2138,13 +2207,13 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                 if current_p:
                     new_p = max(10, int(current_p * 0.70))  # Aggressive 30% cut
                     actions.append({"priority": prio, "urgency": urg, "category": "Oscillation",
-                        "action": f"{axis}: Hover oscillation — reduce P from {current_p} to {new_p}",
+                        "action": f"{axis}: Hover oscillation - reduce P from {current_p} to {new_p}",
                         "reason": f"Low-frequency oscillation detected during hover ({amp_str}). "
-                                  f"P-term is driving the oscillation — reduce P aggressively to stabilize.",
+                                  f"P-term is driving the oscillation - reduce P aggressively to stabilize.",
                         "sub_actions": [{"param": f"{axis_l}_p", "new": new_p}]})
                 else:
                     actions.append({"priority": prio, "urgency": urg, "category": "Oscillation",
-                        "action": f"{axis}: Hover oscillation — reduce P significantly",
+                        "action": f"{axis}: Hover oscillation - reduce P significantly",
                         "reason": f"Low-frequency oscillation detected during hover ({amp_str}). "
                                   f"P-term is driving the oscillation."})
 
@@ -2161,11 +2230,11 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                     new_d = max(0, int(current_d * 0.70))
                     sub.append({"param": f"{axis_l}_d", "new": new_d})
                     parts.append(f"D from {current_d} to {new_d}")
-                act_str = f"{axis}: Hover oscillation — reduce {', '.join(parts)}" if parts else f"{axis}: Reduce P and D to stop hover oscillation"
+                act_str = f"{axis}: Hover oscillation - reduce {', '.join(parts)}" if parts else f"{axis}: Reduce P and D to stop hover oscillation"
                 actions.append({"priority": prio, "urgency": urg, "category": "Oscillation",
                     "action": act_str,
                     "reason": f"Mid-frequency oscillation detected during hover ({amp_str}). "
-                              f"P and D terms are fighting each other — reduce both.",
+                              f"P and D terms are fighting each other - reduce both.",
                     "sub_actions": sub if sub else None})
 
             elif cause == "D_noise":
@@ -2181,7 +2250,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                     new_d = max(0, int(current_d * 0.70))
                     sub.append({"param": f"{axis_l}_d", "new": new_d})
                     parts.append(f"D from {current_d} to {new_d}")
-                act_str = f"{axis}: Hover oscillation — reduce {', '.join(parts)}" if parts else f"{axis}: Lower D-term LPF and reduce D gain"
+                act_str = f"{axis}: Hover oscillation - reduce {', '.join(parts)}" if parts else f"{axis}: Lower D-term LPF and reduce D gain"
                 actions.append({"priority": prio, "urgency": urg, "category": "Oscillation",
                     "action": act_str,
                     "reason": f"D-term noise amplification causing oscillation during hover ({amp_str}). "
@@ -2196,7 +2265,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                     new_glpf = max(20, int(current_glpf * 0.6))
                     sub.append({"param": "gyro_lpf_hz", "new": new_glpf})
                     parts.append(f"Gyro LPF from {current_glpf}Hz to {new_glpf}Hz")
-                act_str = f"{axis}: Hover oscillation — tighten {', '.join(parts)}" if parts else f"{axis}: Lower Gyro LPF to stop high-frequency oscillation"
+                act_str = f"{axis}: Hover oscillation - tighten {', '.join(parts)}" if parts else f"{axis}: Lower Gyro LPF to stop high-frequency oscillation"
                 actions.append({"priority": prio, "urgency": urg, "category": "Oscillation",
                     "action": act_str,
                     "reason": f"High-frequency noise leaking through filters causing oscillation during hover ({amp_str}). "
@@ -2211,7 +2280,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                     new_p = max(10, int(current_p * 0.75))
                     sub.append({"param": f"{axis_l}_p", "new": new_p})
                 actions.append({"priority": prio, "urgency": urg, "category": "Oscillation",
-                    "action": f"{axis}: Hover oscillation detected — reduce P by 25%",
+                    "action": f"{axis}: Hover oscillation detected - reduce P by 25%",
                     "reason": f"Oscillation detected during hover ({amp_str}). "
                               f"Start by reducing P-term as the most common cause.",
                     "sub_actions": sub if sub else None})
@@ -2228,14 +2297,14 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                        f"Excessive phase lag makes the PID controller fight yesterday's problem. "
                        f"Consider raising lowpass cutoffs or switching BIQUAD filters to PT1."})
 
-    # ═══ 0b. MOTOR RESPONSE INFO (not an action — informational only) ═══
+    # ═══ 0b. MOTOR RESPONSE INFO (not an action - informational only) ═══
     info_items = []
     if motor_response and motor_response["motor_response_ms"] > profile["ok_delay_ms"]:
         mr_ms = motor_response["motor_response_ms"]
         info_items.append({
             "text": f"Motor response time: {mr_ms:.0f}ms",
             "detail": f"Motors physically cannot respond faster than {mr_ms:.0f}ms with these props. "
-                      f"This sets a hard floor — tuning for tighter delay than this is futile."})
+                      f"This sets a hard floor - tuning for tighter delay than this is futile."})
 
     # ═══ 1. FILTERS ═══
     current_gyro_lp = config.get("gyro_lowpass_hz") if has_filters else None
@@ -2252,15 +2321,19 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
 
         if current_gyro_lp is not None and abs(rec_gyro_lp - current_gyro_lp) > 10:
             direction = "Reduce" if rec_gyro_lp < current_gyro_lp else "Increase"
+            if rec_gyro_lp < current_gyro_lp:
+                reason = f"High-freq noise at {worst_noise:.0f} dB avg - lower cutoff will reduce noise reaching the PID controller"
+            else:
+                reason = f"Noise floor is clean ({worst_noise:.0f} dB avg) - raising cutoff reduces filter delay with no noise penalty"
             actions.append({"priority": prio, "urgency": urg, "category": "Filter",
                 "action": f"Gyro lowpass filter: {direction} from {current_gyro_lp}Hz to {rec_gyro_lp}Hz",
                 "param": "gyro_lowpass_hz", "current": current_gyro_lp, "new": rec_gyro_lp,
-                "reason": f"High-freq noise at {worst_noise:.0f} dB avg — lower cutoff will reduce noise reaching the PID controller"})
+                "reason": reason})
         elif current_gyro_lp is None and worst_noise > ok_noise:
             actions.append({"priority": prio, "urgency": urg, "category": "Filter",
                 "action": f"Set gyro_lowpass_hz to {rec_gyro_lp}",
                 "param": "gyro_lowpass_hz", "current": "unknown", "new": rec_gyro_lp,
-                "reason": f"Significant noise — use .bbl file for current value reading"})
+                "reason": f"Significant noise - use .bbl file for current value reading"})
 
     # D-term lowpass
     current_dterm_lp = config.get("dterm_lpf_hz") if has_filters else None
@@ -2284,7 +2357,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                 actions.append({"priority": 2, "urgency": "IMPORTANT", "category": "Filter",
                     "action": f"Set dterm_lpf_hz to {rec_dterm_lp}",
                     "param": "dterm_lpf_hz", "current": "unknown", "new": rec_dterm_lp,
-                    "reason": f"D-term noise high — use .bbl for current value"})
+                    "reason": f"D-term noise high - use .bbl for current value"})
 
     # Dynamic notch / RPM filter recommendations
     all_peaks = []
@@ -2303,27 +2376,27 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
         rpm_en = config.get("rpm_filter_enabled")
 
         if dyn_en in (None, "0", 0, "OFF"):
-            # Dynamic notch is truly off — recommend enabling
+            # Dynamic notch is truly off - recommend enabling
             rec_min_hz = max(30, int(round(lowest_peak * 0.7 / 10) * 10))
             actions.append({"priority": 2, "urgency": "IMPORTANT", "category": "Filter",
                 "action": f"Enable dynamic notch filter (set dynamic_gyro_notch_enabled = ON, min_hz = {rec_min_hz})",
                 "param": "dynamic_gyro_notch_enabled", "current": "OFF", "new": "ON",
-                "reason": f"Noise peaks at: {', '.join(f'{f}Hz' for f in dom_freqs[:4])} — dynamic notch will track and attenuate these"})
+                "reason": f"Noise peaks at: {', '.join(f'{f}Hz' for f in dom_freqs[:4])} - dynamic notch will track and attenuate these"})
         elif isinstance(dyn_min_hz, (int, float)) and dyn_min_hz > 0:
-            # Dynamic notch is on — check if min_hz is too high to catch the lowest peaks
+            # Dynamic notch is on - check if min_hz is too high to catch the lowest peaks
             if lowest_peak < dyn_min_hz * 1.1:
                 rec_min_hz = max(30, int(round(lowest_peak * 0.7 / 10) * 10))
                 actions.append({"priority": 3, "urgency": "RECOMMENDED", "category": "Filter",
                     "action": f"Lower dynamic_gyro_notch_min_hz: {int(dyn_min_hz)} → {rec_min_hz}",
                     "param": "dyn_notch_min_hz", "current": int(dyn_min_hz), "new": rec_min_hz,
-                    "reason": f"Noise peak at {int(lowest_peak)}Hz is near/below current min_hz ({int(dyn_min_hz)}Hz) — notch can't track it"})
+                    "reason": f"Noise peak at {int(lowest_peak)}Hz is near/below current min_hz ({int(dyn_min_hz)}Hz) - notch can't track it"})
 
         # RPM filter recommendation (more effective than dynamic notch for motor noise)
         if rpm_en in (None, "0", 0, "OFF"):
             actions.append({"priority": 4, "urgency": "OPTIONAL", "category": "Filter",
                     "action": "Consider enabling RPM filter (set rpm_gyro_filter_enabled = ON)",
                     "param": "rpm_filter_enabled", "current": "OFF", "new": "ON",
-                    "reason": "RPM filter tracks motor noise precisely — requires ESC telemetry wire connected to a UART"})
+                    "reason": "RPM filter tracks motor noise precisely - requires ESC telemetry wire connected to a UART"})
 
     # ═══ PID CHANGES (merged per axis) ═══
     for i, axis in enumerate(AXIS_NAMES):
@@ -2371,37 +2444,37 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                     "category": "PID",
                     "action": f"Reduce {axis} P by ~{int(_os/3)}% and increase D by ~10%",
                     "param": f"{axis.lower()}_p", "current": "unknown", "new": "see action",
-                    "reason": f"Overshoot {_os:.0f}% — use .bbl file for exact values"})
+                    "reason": f"Overshoot {_os:.0f}% - use .bbl file for exact values"})
             if _dl > ok_dl:
                 actions.append({"priority": 3, "urgency": "IMPORTANT" if _dl > bad_dl else None,
                     "category": "PID",
                     "action": f"Increase {axis} P by ~{int(_dl/2)}%",
                     "param": f"{axis.lower()}_p", "current": "unknown", "new": "see action",
-                    "reason": f"Delay {_dl:.0f}ms — use .bbl for exact values"})
+                    "reason": f"Delay {_dl:.0f}ms - use .bbl for exact values"})
 
     # ═══ MOTOR / MECHANICAL ═══
-    if motor_analysis:
+    if motor_analysis and not motor_analysis.get("idle_detected", False):
         for m in motor_analysis["motors"]:
             if m["saturation_pct"] > profile["motor_sat_warn"]:
                 actions.append({"priority": 1 if m["saturation_pct"] > 15 else 3,
                     "urgency": "CRITICAL" if m["saturation_pct"] > 15 else "IMPORTANT",
                     "category": "Motor",
-                    "action": f"Motor {m['motor']} saturating {m['saturation_pct']:.1f}% — reduce overall PID gains by 15%",
+                    "action": f"Motor {m['motor']} saturating {m['saturation_pct']:.1f}% - reduce overall PID gains by 15%",
                     "param": "motor_saturation", "current": f"{m['saturation_pct']:.1f}%", "new": f"<{profile['motor_sat_ok']}%",
-                    "reason": "Motor at 100% can't correct further — PID demands exceed physics"})
+                    "reason": "Motor at 100% can't correct further - PID demands exceed physics"})
 
         if motor_analysis["worst_motor"] and motor_analysis["balance_spread_pct"] > profile["motor_imbal_warn"]:
             wm, wd = motor_analysis["worst_motor"], motor_analysis["worst_direction"]
             sp = motor_analysis["balance_spread_pct"]
             actions.append({"priority": 2, "urgency": "IMPORTANT", "category": "Mechanical",
-                "action": f"Check Motor {wm} — running {wd} ({sp:.1f}% imbalance)",
+                "action": f"Check Motor {wm} - running {wd} ({sp:.1f}% imbalance)",
                 "param": "motor_balance", "current": f"{sp:.1f}%", "new": f"<{profile['motor_imbal_ok']}%",
                 "reason": "Bent prop, bad motor, loose mount, or CG offset. Fix mechanics before tuning PIDs."})
         elif motor_analysis["worst_motor"] and motor_analysis["balance_spread_pct"] > profile["motor_imbal_ok"]:
             wm = motor_analysis["worst_motor"]
             sp = motor_analysis["balance_spread_pct"]
             actions.append({"priority": 5, "urgency": None, "category": "Mechanical",
-                "action": f"Minor imbalance ({sp:.1f}%) — Motor {wm} is the outlier",
+                "action": f"Minor imbalance ({sp:.1f}%) - Motor {wm} is the outlier",
                 "param": "motor_balance", "current": f"{sp:.1f}%", "new": f"<{profile['motor_imbal_ok']}%",
                 "reason": "Check prop balance and CG"})
 
@@ -2430,7 +2503,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
                     a["original_action"] = a["action"]
                     a["action"] = f"[DEFERRED] {a['action']}"
                     a["reason"] = (
-                        "PID changes deferred — fix hover oscillation first. The oscillation "
+                        "PID changes deferred - fix hover oscillation first. The oscillation "
                         "actions above address the same axis with more aggressive corrections.")
 
     # ═══ FILTER-FIRST ENFORCEMENT ═══
@@ -2443,7 +2516,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
     pid_actions = [a for a in actions if a.get("category") == "PID"]
 
     if filter_actions and pid_actions:
-        # Mark PID actions as deferred — they'll show as informational, not actionable
+        # Mark PID actions as deferred - they'll show as informational, not actionable
         for a in pid_actions:
             a["deferred"] = True
             a["urgency"] = None
@@ -2514,7 +2587,7 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
             gyro_oscillation_score = float(min(osc_scores))  # Worst axis drives the score
 
     motor_score = 100
-    if motor_analysis:
+    if motor_analysis and not motor_analysis.get("idle_detected", False):
         sat_s = [max(0, 100 - m["saturation_pct"] * 10) for m in motor_analysis["motors"]]
         bal_s = max(0, 100 - motor_analysis["balance_spread_pct"] * 8)
         motor_score = (np.mean(sat_s) + bal_s) / 2
@@ -2552,15 +2625,15 @@ def generate_action_plan(noise_results, pid_results, motor_analysis, dterm_resul
 
     critical_actions = [a for a in actions if a["urgency"] in ("CRITICAL", "IMPORTANT")]
     if not pid_measurable:
-        # Can't verify tune — need more stick data
+        # Can't verify tune - need more stick data
         if overall >= 50:
             verdict, vtext = "NEED_DATA", "Noise and motors look good, but PID performance could not be measured. Fly with stick inputs (rolls, pitches, yaw sweeps) for tuning data."
         else:
             verdict, vtext = "NEED_DATA", "PID performance could not be measured. Fly with deliberate stick inputs for tuning data."
     elif overall >= 85 and len(critical_actions) == 0:
-        verdict, vtext = "DIALED_IN", "This tune is dialed in. You're done — go fly!"
+        verdict, vtext = "DIALED_IN", "This tune is dialed in. You're done - go fly!"
     elif overall >= 75 and len(critical_actions) == 0:
-        verdict, vtext = "NEARLY_THERE", "Almost there — just minor tweaks left."
+        verdict, vtext = "NEARLY_THERE", "Almost there - just minor tweaks left."
     elif overall >= 60:
         verdict, vtext = "GETTING_BETTER", "Making progress. Apply the changes below and fly again."
     elif overall >= 40:
@@ -2615,7 +2688,7 @@ def create_pid_response_chart(pid_results, sr):
     if not valid: return None
     fig, axes = plt.subplots(len(valid), 1, figsize=(16, 3.5*len(valid)), sharex=True)
     if len(valid) == 1: axes = [axes]
-    fig.suptitle("PID Response — Setpoint vs Gyro", fontsize=14, color="#c0caf5", fontweight="bold", y=1.01)
+    fig.suptitle("PID Response - Setpoint vs Gyro", fontsize=14, color="#c0caf5", fontweight="bold", y=1.01)
     ws = int(sr * 2)
     for i, pid in enumerate(valid):
         ax = axes[i]
@@ -2636,7 +2709,7 @@ def create_pid_response_chart(pid_results, sr):
         _dl = pid["tracking_delay_ms"]
         dl_str = f"{_dl:.1f}ms" if _dl is not None else "N/A"
         os_str = f"{_os:.1f}%" if _os is not None else "N/A"
-        ax.set_title(f'{pid["axis"]} — Delay:{dl_str} | OS:{os_str}',
+        ax.set_title(f'{pid["axis"]} - Delay:{dl_str} | OS:{os_str}',
                       color=AXIS_COLORS[ai], fontweight="bold", fontsize=11)
         ax.set_ylabel("deg/s")
         ax.legend(loc="upper right", fontsize=8, facecolor="#1a1b26", edgecolor="#565f89")
@@ -2721,7 +2794,7 @@ INAV_GUI_MAP = {
 
 def generate_cli_commands(actions):
     """Generate INAV CLI commands from action plan."""
-    # Use ordered dict to deduplicate — last value wins per param
+    # Use ordered dict to deduplicate - last value wins per param
     cmd_map = {}
 
     for a in actions:
@@ -2776,7 +2849,19 @@ def generate_narrative(plan, pid_results, motor_analysis, noise_results, config,
 
     parts.append(f"This analysis is based on {duration:.0f} seconds of flight data at {sr:.0f}Hz.")
 
-    # Hover oscillation (most critical — mention first)
+    # Short flight warning
+    if duration < 5:
+        parts.append(
+            "WARNING: This flight is very short (under 5 seconds). "
+            "Results may not be representative - longer flights with stick inputs provide much better data.")
+
+    # Idle/ground detection warning
+    if motor_analysis and motor_analysis.get("idle_detected", False):
+        parts.append(
+            "Motors were at idle throughout this log (likely armed on the ground without flying). "
+            "Motor analysis is not meaningful for this flight.")
+
+    # Hover oscillation (most critical - mention first)
     hover_osc_data = plan["scores"].get("hover_osc", [])
     osc_axes = [o for o in hover_osc_data if o["severity"] in ("moderate", "severe")] if hover_osc_data else []
     if osc_axes:
@@ -2786,7 +2871,7 @@ def generate_narrative(plan, pid_results, motor_analysis, noise_results, config,
             parts.append(
                 f"CRITICAL: The quad is oscillating during hover on {'/'.join(axis_names)} "
                 f"(worst: {worst['axis']} at {worst['gyro_rms']:.1f}°/s RMS). "
-                f"This must be fixed before any other tuning — the quad is fighting itself just to stay in the air.")
+                f"This must be fixed before any other tuning - the quad is fighting itself just to stay in the air.")
         else:
             parts.append(
                 f"The quad shows oscillation during hover on {'/'.join(axis_names)} "
@@ -2851,11 +2936,11 @@ def generate_narrative(plan, pid_results, motor_analysis, noise_results, config,
     noise_score = plan["scores"].get("noise")
     if noise_score is not None:
         if noise_score >= 90:
-            parts.append("Gyro noise levels are clean — no major vibration issues detected.")
+            parts.append("Gyro noise levels are clean - no major vibration issues detected.")
         elif noise_score >= 60:
             parts.append("There is moderate noise in the gyro signal. Lowering the gyro lowpass filter or enabling RPM filtering would help.")
         else:
-            parts.append("The gyro signal is noisy — this often comes from propeller vibrations, loose mounting, or motor issues. "
+            parts.append("The gyro signal is noisy - this often comes from propeller vibrations, loose mounting, or motor issues. "
                         "Addressing noise should be the top priority before fine-tuning PIDs.")
 
     # Motors
@@ -2866,7 +2951,7 @@ def generate_narrative(plan, pid_results, motor_analysis, noise_results, config,
             parts.append(
                 f"Motor {wm} is working significantly harder than the others ({spread:.0f}% imbalance). "
                 f"This usually indicates a bent prop, bad motor bearing, loose mount, or CG offset. "
-                f"Fix the mechanical issue before adjusting PIDs — no amount of software tuning can compensate for hardware problems.")
+                f"Fix the mechanical issue before adjusting PIDs - no amount of software tuning can compensate for hardware problems.")
         elif spread > profile["motor_imbal_ok"]:
             wm = motor_analysis["worst_motor"]
             parts.append(f"There's a minor motor imbalance ({spread:.0f}%) on Motor {wm}. Worth checking prop balance and CG position.")
@@ -2885,6 +2970,14 @@ def print_terminal_report(plan, noise_results, pid_results, motor_analysis, conf
     print(f"  {DIM}{datetime.now().strftime('%Y-%m-%d %H:%M')} | {data['time_s'][-1]:.1f}s | {data['sample_rate']:.0f}Hz | {data['n_rows']:,} rows{R}")
     if config.get("craft_name"): print(f"  {DIM}Craft: {config['craft_name']}{R}")
 
+    # ── Ground-only flights: brief message, no fake analysis ──
+    if plan["verdict"] == "GROUND_ONLY":
+        print(f"\n  {DIM}{'░' * 20} - /100{R}")
+        print(f"  {DIM}  Noise:- | PID:- | Motors:-{R}")
+        print(f"\n  {Y}▸ {plan['verdict_text']}{R}")
+        print(f"\n{B}{C}{'═'*70}{R}")
+        return
+
     sc = G if overall >= 85 else Y if overall >= 60 else RED
     print(f"\n  {B}TUNE QUALITY: {sc}{'█'*int(overall/5)}{'░'*(20-int(overall/5))} {overall:.0f}/100{R}")
     parts = []
@@ -2893,10 +2986,11 @@ def print_terminal_report(plan, noise_results, pid_results, motor_analysis, conf
         parts.append(f"PID:{scores['pid']:.0f}")
     elif not scores.get("pid_measurable", True):
         parts.append(f"PID:N/A")
-    parts.append(f"Motors:{scores['motor']:.0f}")
+    motor_str = "N/A" if motor_analysis and motor_analysis.get("idle_detected", False) else f"{scores['motor']:.0f}"
+    parts.append(f"Motors:{motor_str}")
     print(f"  {DIM}  {' | '.join(parts)}{R}")
 
-    vc = {"DIALED_IN": G, "NEARLY_THERE": G, "GETTING_BETTER": Y, "NEEDS_WORK": Y, "ROUGH": RED, "NEED_DATA": Y}
+    vc = {"DIALED_IN": G, "NEARLY_THERE": G, "GETTING_BETTER": Y, "NEEDS_WORK": Y, "ROUGH": RED, "NEED_DATA": Y, "GROUND_ONLY": DIM}
     print(f"\n  {B}{vc.get(plan['verdict'],C)}▸ {plan['verdict_text']}{R}")
 
     # Narrative (on by default)
@@ -2937,7 +3031,7 @@ def print_terminal_report(plan, noise_results, pid_results, motor_analysis, conf
 
     if active_actions:
         print(f"\n{B}{C}{'─'*70}{R}")
-        print(f"  {B}DO THIS — {len(active_actions)} change{'s' if len(active_actions)!=1 else ''}:{R}")
+        print(f"  {B}DO THIS - {len(active_actions)} change{'s' if len(active_actions)!=1 else ''}:{R}")
         print(f"{B}{C}{'─'*70}{R}")
         for i, a in enumerate(active_actions, 1):
             us = ""
@@ -2950,7 +3044,7 @@ def print_terminal_report(plan, noise_results, pid_results, motor_analysis, conf
         cli_cmds = generate_cli_commands(active_actions)
         if cli_cmds:
             print(f"\n{B}{C}{'─'*70}{R}")
-            print(f"  {B}INAV CLI — paste into Configurator CLI tab:{R}")
+            print(f"  {B}INAV CLI - paste into Configurator CLI tab:{R}")
             print()
             for cmd in cli_cmds:
                 print(f"    {G}{cmd}{R}")
@@ -2988,7 +3082,7 @@ def print_terminal_report(plan, noise_results, pid_results, motor_analysis, conf
 
     if not active_actions and not deferred_actions:
         if plan["scores"].get("pid_measurable", True):
-            print(f"\n  {G}{B}  ✓ No changes needed — go fly!{R}")
+            print(f"\n  {G}{B}  ✓ No changes needed - go fly!{R}")
         else:
             print(f"\n  {Y}{B}  ⚠ Need flight data with stick inputs to measure PID response.{R}")
             print(f"  {DIM}  Fly with deliberate roll/pitch/yaw moves, then re-analyze.{R}")
@@ -2996,7 +3090,7 @@ def print_terminal_report(plan, noise_results, pid_results, motor_analysis, conf
     print(f"\n{B}{C}{'─'*70}{R}")
     print(f"  {B}MEASUREMENTS:{R}")
 
-    # Hover oscillation (show first — most critical)
+    # Hover oscillation (show first - most critical)
     hover_osc_data = plan["scores"].get("hover_osc", [])
     any_osc = any(o["severity"] != "none" for o in hover_osc_data) if hover_osc_data else False
     if hover_osc_data:
@@ -3041,9 +3135,12 @@ def print_terminal_report(plan, noise_results, pid_results, motor_analysis, conf
         step_hint = f"  {DIM}({n_steps} steps){R}" if n_steps < 5 and (_os is None or _dl is None) else ""
         print(f"    {pid['axis']:6s}  OS:{os_str}  Delay:{dl_str}  Err:{pid['rms_error']:.1f}{step_hint}")
     if motor_analysis:
-        for m in motor_analysis["motors"]:
-            sc2 = RED if m["saturation_pct"]>MOTOR_SAT_WARN else G
-            print(f"    Motor {m['motor']}  Avg:{m['avg_pct']:5.1f}%  Sat:{sc2}{m['saturation_pct']:4.1f}%{R}")
+        if motor_analysis.get("idle_detected", False):
+            print(f"    Motors: {DIM}idle/ground (no throttle variation - skipping saturation analysis){R}")
+        else:
+            for m in motor_analysis["motors"]:
+                sc2 = RED if m["saturation_pct"]>MOTOR_SAT_WARN else G
+                print(f"    Motor {m['motor']}  Avg:{m['avg_pct']:5.1f}%  Sat:{sc2}{m['saturation_pct']:4.1f}%{R}")
     print(f"\n{B}{C}{'═'*70}{R}\n")
 
 
@@ -3075,7 +3172,7 @@ def generate_html_report(plan, noise_results, pid_results, motor_analysis, dterm
     if config_has_pid(config) or config_has_filters(config):
         cr = ""
         for ax in ["roll","pitch","yaw"]:
-            cr += f'<tr><td class="ax-{ax}">{ax.capitalize()}</td><td>{config.get(f"{ax}_p","—")}</td><td>{config.get(f"{ax}_i","—")}</td><td>{config.get(f"{ax}_d","—")}</td></tr>'
+            cr += f'<tr><td class="ax-{ax}">{ax.capitalize()}</td><td>{config.get(f"{ax}_p","-")}</td><td>{config.get(f"{ax}_i","-")}</td><td>{config.get(f"{ax}_d","-")}</td></tr>'
         fi = ""
         for k, l in [("gyro_lowpass_hz","Gyro LPF"),("dterm_lpf_hz","D-term LPF"),("yaw_lpf_hz","Yaw LPF"),("gyro_lowpass2_hz","Gyro LPF2")]:
             v = config.get(k)
@@ -3109,9 +3206,12 @@ def generate_html_report(plan, noise_results, pid_results, motor_analysis, dterm
 
     mt = ""
     if motor_analysis:
-        for m in motor_analysis["motors"]:
-            sc = "bad" if m["saturation_pct"]>MOTOR_SAT_WARN else "good"
-            mt += f'<tr><td>M{m["motor"]}</td><td>{m["avg_pct"]:.1f}%</td><td>{m["std_pct"]:.1f}%</td><td class="{sc}">{m["saturation_pct"]:.1f}%</td></tr>'
+        if motor_analysis.get("idle_detected", False):
+            mt = '<tr><td colspan="4" style="color:var(--dm);text-align:center">Idle/ground - no throttle variation</td></tr>'
+        else:
+            for m in motor_analysis["motors"]:
+                sc = "bad" if m["saturation_pct"]>MOTOR_SAT_WARN else "good"
+                mt += f'<tr><td>M{m["motor"]}</td><td>{m["avg_pct"]:.1f}%</td><td>{m["std_pct"]:.1f}%</td><td class="{sc}">{m["saturation_pct"]:.1f}%</td></tr>'
 
     ci = lambda k: f'<img src="data:image/png;base64,{charts[k]}">' if charts.get(k) else ""
     vc = plan["verdict"].lower().replace("_","-")
@@ -3157,7 +3257,7 @@ footer{{text-align:center;color:var(--dm);font-size:.7rem;padding:24px 0;border-
 <section><h2>Noise</h2><div class="cc">{ci("noise")}</div></section>
 {'<section><h2>D-Term Noise</h2><div class="cc">'+ci("dterm")+'</div></section>' if charts.get("dterm") else ''}
 {'<section><h2>Motors</h2><div class="cc"><table><tr><th>Motor</th><th>Avg</th><th>StdDev</th><th>Saturation</th></tr>'+mt+'</table></div><div class="cc">'+ci("motor")+'</div></section>' if motor_analysis else ''}
-</div><footer>INAV Blackbox Analyzer v{REPORT_VERSION} — Test changes with props off first</footer></body></html>"""
+</div><footer>INAV Blackbox Analyzer v{REPORT_VERSION} - Test changes with props off first</footer></body></html>"""
 
 
 # ─── State file ───────────────────────────────────────────────────────────────
@@ -3212,7 +3312,7 @@ def split_blackbox_logs(filepath, output_dir=None):
         start = idx + len(marker)
 
     if len(positions) <= 1:
-        # Single log — return as-is
+        # Single log - return as-is
         return [filepath]
 
     # Determine output directory
@@ -3237,7 +3337,7 @@ def split_blackbox_logs(filepath, output_dir=None):
         end = positions[i + 1] if i + 1 < len(positions) else len(raw)
         segment = raw[pos:end]
 
-        # Skip tiny segments (< 1KB) — likely just headers without data
+        # Skip tiny segments (< 1KB) - likely just headers without data
         if len(segment) < 1024:
             continue
 
@@ -3273,7 +3373,7 @@ def count_blackbox_logs(filepath):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="INAV Blackbox Analyzer v2.12.0 — Prescriptive Tuning",
+    parser = argparse.ArgumentParser(description="INAV Blackbox Analyzer v2.12.1 - Prescriptive Tuning",
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("logfile", nargs="?", default=None,
                         help="Blackbox log (.bbl/.bfl/.bbs/.txt or decoded .csv). "
@@ -3311,7 +3411,8 @@ def main():
     parser.add_argument("--no-narrative", action="store_true",
                         help="Omit the plain-English description of the quad's behavior.")
     parser.add_argument("--diff", action="store_true",
-                        help="Pull 'diff all' config from FC via CLI (requires --device).")
+                        help="Pull 'diff all' config from FC via CLI. Automatic with --device; "
+                             "this flag is kept for backward compatibility.")
     parser.add_argument("--no-db", action="store_true",
                         help="Skip storing results in flight database.")
     parser.add_argument("--db-path", default="./inav_flights.db",
@@ -3367,7 +3468,7 @@ def main():
                 print(f"  ERROR: Not an INAV FC (got: {info.get('fc_variant', '?')})")
                 sys.exit(1)
 
-            print(f"  Connected: {info['craft_name'] or '(unnamed)'} — {info['firmware']}")
+            print(f"  Connected: {info['craft_name'] or '(unnamed)'} - {info['firmware']}")
 
             # Allow serial to settle after identification handshake
             _time.sleep(0.2)
@@ -3387,22 +3488,23 @@ def main():
             pct = summary['used_size'] * 100 // summary['total_size'] if summary['total_size'] > 0 else 0
             print(f"  Dataflash: {used_kb:.0f}KB / {total_kb:.0f}KB ({pct}% used)")
 
-            # Pull CLI diff if requested
+            # Pull CLI diff automatically when FC is connected.
+            # Used for: session detection (diff vs flight headers),
+            # config review, mismatch detection.
             diff_raw = None
-            if args.diff:
-                print("  Pulling configuration (diff all)...", end="", flush=True)
-                diff_raw = fc.get_diff_all(timeout=10.0)
-                if diff_raw:
-                    n_settings = len([l for l in diff_raw.splitlines() if l.strip().startswith("set ")])
-                    print(f" {n_settings} settings")
-                    # Save diff to file alongside blackbox
-                    diff_path = os.path.join(args.blackbox_dir, f"{info['craft_name'] or 'fc'}_diff.txt")
-                    os.makedirs(args.blackbox_dir, exist_ok=True)
-                    with open(diff_path, "w") as f:
-                        f.write(diff_raw)
-                    print(f"  ✓ Saved: {diff_path}")
-                else:
-                    print(" no response (FC may not support CLI over MSP)")
+            print("  Pulling configuration (diff all)...", end="", flush=True)
+            diff_raw = fc.get_diff_all(timeout=10.0)
+            if diff_raw:
+                n_settings = len([l for l in diff_raw.splitlines() if l.strip().startswith("set ")])
+                print(f" {n_settings} settings")
+                # Save diff to file alongside blackbox
+                diff_path = os.path.join(args.blackbox_dir, f"{info['craft_name'] or 'fc'}_diff.txt")
+                os.makedirs(args.blackbox_dir, exist_ok=True)
+                with open(diff_path, "w") as f:
+                    f.write(diff_raw)
+                print(f"  ✓ Saved: {diff_path}")
+            else:
+                print(" no response (FC may not support CLI over MSP)")
 
             if summary['used_size'] == 0:
                 print("  No blackbox data to download.")
@@ -3464,35 +3566,307 @@ def main():
             print(f"    {os.path.basename(lf)}")
         print()
 
-    # ── Process each log ──
-    for log_idx, logfile in enumerate(log_files):
-        if len(log_files) > 1:
-            print(f"\n{'═' * 70}")
-            print(f"  Flight {log_idx + 1} of {len(log_files)}: {os.path.basename(logfile)}")
-            print(f"{'═' * 70}")
+    # ── Process flights ──
+    # Workflow: user flies → downloads → implements suggestions → flies again.
+    # Flash may contain flights from multiple sessions (config changes between
+    # arm cycles). Only the LATEST session's best flight deserves full analysis.
+    # Earlier flights are stored in DB for progression but shown as one-liners.
+    if len(log_files) > 1:
+        _process_multi_log(log_files, args, diff_raw)
+    else:
+        # Single flight - full analysis
+        _analyze_single_log(log_files[0], args, diff_raw)
 
-        _analyze_single_log(logfile, args, diff_raw)
 
-    # ── Show progression after multi-log analysis ──
-    if not args.no_db and len(log_files) > 1:
-        from inav_flight_db import FlightDB
-        db = FlightDB(args.db_path)
-        # Peek at craft name
-        rp = parse_headers_from_bbl(log_files[0])
-        cfg = extract_fc_config(rp)
-        craft = cfg.get("craft_name", "unknown")
-        prog = db.get_progression(craft)
-        if prog["changes"]:
-            R, B, C, G, Y, DIM = "\033[0m", "\033[1m", "\033[96m", "\033[92m", "\033[93m", "\033[2m"
-            print(f"\n{B}{C}{'═' * 70}{R}")
-            print(f"  {B}FLIGHT PROGRESSION ({craft}):{R}")
-            trend_icon = {"improving": f"{G}↗ Improving", "degrading": f"\033[91m↘ Degrading",
-                          "stable": f"{Y}→ Stable"}.get(prog["trend"], f"{DIM}? Insufficient data")
-            print(f"  Trend: {trend_icon}{R}")
-            for ch in prog["changes"]:
-                print(f"    {ch}")
-            print(f"{B}{C}{'═' * 70}{R}\n")
-        db.close()
+def _process_multi_log(log_files, args, diff_raw):
+    """Handle multiple flights from a single flash download.
+
+    Strategy:
+    1. Quick-scan all flights (summary_only) for metadata
+    2. Group into sessions by config fingerprint
+    3. Select best flight from latest session (longest non-idle)
+    4. Show compact table of all flights with session boundaries
+    5. Full analysis only on the selected flight
+    """
+    R, B, C, G, Y, RED, DIM = (
+        "\033[0m", "\033[1m", "\033[96m", "\033[92m",
+        "\033[93m", "\033[91m", "\033[2m")
+
+    # ── Phase 1: Quick-scan all flights ──
+    print(f"  Scanning {len(log_files)} flights...")
+    summaries = []
+    for lf in log_files:
+        s = _analyze_single_log(lf, args, diff_raw, summary_only=True)
+        if s:
+            summaries.append(s)
+
+    if not summaries:
+        print("  ERROR: Could not parse any flights.")
+        return
+
+    # ── Phase 2: Classify flights as current or old ──
+    # If we have the live FC diff, that's ground truth: flights whose
+    # header config matches the diff are "current session" (post-change),
+    # flights that don't match are "old session" (pre-change).
+    # Without a diff, fall back to comparing consecutive flights.
+    current_fp = _fingerprint_from_diff(diff_raw)
+    is_current = []  # True/False per flight
+
+    if current_fp:
+        # Ground truth from FC diff
+        for s in summaries:
+            is_current.append(s.get("config_key", "") == current_fp)
+    else:
+        # Fallback: group by consecutive matching config fingerprints.
+        # Assume the last group is "current" since user hasn't changed
+        # config after their most recent flight.
+        last_fp = summaries[-1].get("config_key", "")
+        for s in summaries:
+            is_current.append(s.get("config_key", "") == last_fp)
+
+    n_current = sum(is_current)
+    n_old = len(summaries) - n_current
+    multi_session = n_old > 0
+
+    # ── Phase 3: Select best flight from current session ──
+    # Pick the longest non-idle flight from the current config group.
+    best_idx = None
+    best_dur = -1
+    for i, s in enumerate(summaries):
+        if not is_current[i]:
+            continue
+        dur = s.get("duration", 0)
+        idle = s.get("idle", False)
+        if not idle and dur > best_dur:
+            best_dur = dur
+            best_idx = i
+
+    if best_idx is None:
+        # All current flights are idle - pick longest current
+        for i, s in enumerate(summaries):
+            if not is_current[i]:
+                continue
+            dur = s.get("duration", 0)
+            if dur > best_dur:
+                best_dur = dur
+                best_idx = i
+
+    if best_idx is None:
+        # No current flights at all (shouldn't happen) - pick last
+        best_idx = len(summaries) - 1
+
+    # ── Phase 4: Print compact flight table ──
+    print(f"\n  {B}{'═' * 66}{R}")
+    if multi_session:
+        src = "diff" if current_fp else "headers"
+        print(f"  {B}FLASH CONTENTS:{R} {len(summaries)} flights, "
+              f"{n_old} old + {n_current} current (detected from {src})")
+    else:
+        print(f"  {B}FLASH CONTENTS:{R} {len(summaries)} flights, same config throughout")
+    print(f"  {B}{'─' * 66}{R}")
+    print(f"  {'#':>3}  {'Duration':>8}  {'Score':>7}  {'Status':<28}  {'Notes'}")
+    print(f"  {'─'*3}  {'─'*8}  {'─'*7}  {'─'*28}  {'─'*15}")
+
+    # Print with session boundary markers
+    prev_current = None
+    for i, s in enumerate(summaries):
+        score = s.get("score")
+        dur = s.get("duration", 0)
+        idle = s.get("idle", False)
+
+        sc_str = f"{score:.0f}/100" if score is not None else "     -"
+        sc_c = G if (score or 0) >= 85 else Y if (score or 0) >= 60 else RED if score is not None else DIM
+        dur_str = f"{dur:.1f}s" if dur else "?"
+
+        if idle:
+            status = f"{DIM}idle/ground{R}"
+        else:
+            status = _verdict_short(s.get("verdict", ""))
+
+        notes = ""
+        if i == best_idx:
+            notes = f"{G}◄ analyzing this one{R}"
+        elif not is_current[i]:
+            notes = f"{DIM}old config{R}"
+
+        # Session boundary marker
+        if multi_session and prev_current is not None and is_current[i] != prev_current:
+            print(f"  {Y}{'· ' * 33}{R}")
+            print(f"  {Y}  ◆ Config changed - recommendations above no longer apply{R}")
+            print(f"  {Y}{'· ' * 33}{R}")
+
+        is_best = (i == best_idx)
+        print(f"  {DIM if not is_best else ''}{i+1:3}{R}  {dur_str:>8}  "
+              f"{sc_c if is_best else DIM}{sc_str:>7}{R}  "
+              f"{status:<28}  {notes}")
+        prev_current = is_current[i]
+
+    print(f"  {B}{'═' * 66}{R}")
+
+    # Summary message
+    best_s = summaries[best_idx]
+    n_idle = sum(1 for s in summaries if s.get("idle", False))
+    if n_idle > 0:
+        print(f"\n  {DIM}{n_idle} ground segment{'s' if n_idle > 1 else ''} skipped "
+              f"(armed but no flight){R}")
+    if multi_session:
+        print(f"  {DIM}{n_old} flight{'s' if n_old > 1 else ''} from previous config "
+              f"(recommendations no longer apply){R}")
+    print(f"\n  Analyzing flight #{best_idx + 1} "
+          f"({best_s.get('duration', 0):.1f}s, latest config)...\n")
+
+    # ── Phase 5: Full analysis on the selected flight ──
+    print(f"{'═' * 70}")
+    _analyze_single_log(log_files[best_idx], args, diff_raw)
+
+    # ── Phase 6: Show cross-session progression ──
+    if not args.no_db:
+        try:
+            from inav_flight_db import FlightDB
+            db = FlightDB(args.db_path)
+            rp = parse_headers_from_bbl(log_files[0])
+            cfg = extract_fc_config(rp)
+            craft = cfg.get("craft_name", "unknown")
+            prog = db.get_progression(craft)
+            if prog["flights"] and len(prog["flights"]) >= 2:
+                print(f"\n{B}{C}{'═' * 70}{R}")
+                print(f"  {B}FLIGHT PROGRESSION ({craft}):{R}")
+                trend_icon = {"improving": f"{G}↗ Improving",
+                              "degrading": f"\033[91m↘ Degrading",
+                              "stable": f"{Y}→ Stable"
+                              }.get(prog["trend"],
+                                    f"{DIM}? Insufficient data")
+                print(f"  Trend: {trend_icon}{R}")
+                for ch in prog["changes"]:
+                    print(f"    {ch}")
+                print(f"{B}{C}{'═' * 70}{R}\n")
+            db.close()
+        except Exception:
+            pass
+
+
+def _verdict_short(verdict):
+    """Short display string for verdict codes."""
+    return {"DIALED_IN": "✓ dialed in", "NEARLY_THERE": "✓ nearly there",
+            "GETTING_BETTER": "↗ getting better", "NEEDS_WORK": "⚠ needs work",
+            "ROUGH": "✖ rough", "NEED_DATA": "? need data",
+            "GROUND_ONLY": "- ground"}.get(verdict, verdict or "?")
+
+
+def _config_fingerprint(config):
+    """Generate a short fingerprint of tuning-relevant config for change detection."""
+    parts = []
+    for ax in ["roll", "pitch", "yaw"]:
+        p = config.get(f"{ax}_p")
+        d = config.get(f"{ax}_d")
+        if p is not None:
+            parts.append(f"{ax[0]}P{p}D{d or 0}")
+    for k in ["gyro_lowpass_hz", "dterm_lpf_hz", "dyn_notch_min_hz"]:
+        v = config.get(k)
+        if v is not None:
+            parts.append(f"{k}={v}")
+    return "|".join(parts) if parts else ""
+
+
+def _fingerprint_from_diff(diff_raw):
+    """Build a config fingerprint from CLI 'diff all' output.
+
+    This represents the FC's CURRENT config - the ground truth.
+    Flights whose header fingerprint matches this are from the current
+    session; flights that don't match are from before the user applied
+    changes.
+    """
+    if not diff_raw:
+        return ""
+
+    from inav_flight_db import parse_diff_output
+    diff_settings = parse_diff_output(diff_raw)
+
+    # Map CLI names → config keys (same mapping as merge_diff_into_config)
+    config = {}
+    for cli_name, cli_value in diff_settings.items():
+        config_key = CLI_TO_CONFIG.get(cli_name)
+        if config_key is None:
+            continue
+        try:
+            config[config_key] = int(cli_value)
+        except (ValueError, TypeError):
+            config[config_key] = cli_value
+
+    return _config_fingerprint(config)
+
+
+def _print_config_review(diff_raw, config, frame_inches, plan):
+    """Run parameter analyzer on FC diff and show findings not covered by flight analysis.
+
+    Only shows CRITICAL and WARNING findings from categories that the blackbox
+    analyzer doesn't cover (safety, nav, motor protocol, GPS, battery, RX).
+    Filter and PID findings are skipped since the flight-based analysis is
+    more accurate for those.
+    """
+    R, B, C, G, Y, RED, DIM = (
+        "\033[0m", "\033[1m", "\033[96m", "\033[92m",
+        "\033[93m", "\033[91m", "\033[2m")
+
+    try:
+        from inav_param_analyzer import parse_diff_all, run_all_checks, CRITICAL, WARNING
+    except ImportError:
+        return  # param analyzer not available
+
+    try:
+        parsed = parse_diff_all(diff_raw)
+    except Exception:
+        return
+
+    # Load blackbox state if available for cross-reference
+    bb_state = None
+    # Run all checks
+    findings = run_all_checks(parsed, frame_inches=frame_inches, blackbox_state=bb_state)
+
+    # Filter: skip categories the blackbox analyzer already handles from flight data
+    # These are more accurately assessed from actual flight data than from config alone
+    skip_categories = {"Filter", "PID"}
+    # Also skip OK and INFO - only show actionable issues
+    relevant = [f for f in findings
+                if f.severity in (CRITICAL, WARNING)
+                and f.category not in skip_categories]
+
+    if not relevant:
+        return
+
+    n_crit = sum(1 for f in relevant if f.severity == CRITICAL)
+    n_warn = sum(1 for f in relevant if f.severity == WARNING)
+
+    label_parts = []
+    if n_crit: label_parts.append(f"{n_crit} critical")
+    if n_warn: label_parts.append(f"{n_warn} warning{'s' if n_warn > 1 else ''}")
+
+    print(f"\n{B}{Y}{'─' * 70}{R}")
+    print(f"  {B}CONFIG REVIEW{R} ({', '.join(label_parts)} from parameter analysis)")
+    print(f"{B}{Y}{'─' * 70}{R}")
+
+    for f in relevant:
+        if f.severity == CRITICAL:
+            icon = f"{RED}{B}✖{R}"
+            sev_str = f"{RED}{B}CRITICAL{R}"
+        else:
+            icon = f"{Y}⚠{R}"
+            sev_str = f"{Y}WARNING{R}"
+
+        print(f"\n  {icon} [{sev_str}] {B}{f.title}{R}")
+        # Wrap detail text
+        import textwrap
+        for line in textwrap.wrap(f.detail, width=64):
+            print(f"    {DIM}{line}{R}")
+        if f.cli_fix:
+            # Show just the first line of the CLI fix as a hint
+            fix_line = f.cli_fix.strip().split("\n")[0]
+            if len(f.cli_fix.strip().split("\n")) > 1:
+                fix_line += " ..."
+            print(f"    {G}Fix: {fix_line}{R}")
+
+    print(f"\n  {DIM}Run 'python3 inav_param_analyzer.py diff.txt' for the full config review.{R}")
+    print(f"{B}{Y}{'─' * 70}{R}")
 
 
 def _print_flight_history(db, craft):
@@ -3519,8 +3893,9 @@ def _print_flight_history(db, craft):
         osc = f"{f['osc_score']:.0f}" if f["osc_score"] is not None else "?"
         v = f["verdict"] or "?"
 
-        sc_c = G if (sc or 0) >= 85 else Y if (sc or 0) >= 60 else RED
-        print(f"  {i+1:3}  {ts}  {dur:>5}  {sc_c}{sc_str:>5}{R}  {ns:>5}  {ps:>5}  {osc:>5}  {DIM}{v}{R}")
+        sc_c = G if (sc or 0) >= 85 else Y if (sc or 0) >= 60 else RED if sc is not None else DIM
+        v_str = "- ground" if v == "GROUND_ONLY" else v
+        print(f"  {i+1:3}  {ts}  {dur:>5}  {sc_c}{sc_str:>5}{R}  {ns:>5}  {ps:>5}  {osc:>5}  {DIM}{v_str}{R}")
 
     # Show progression
     prog = db.get_progression(craft)
@@ -3532,7 +3907,19 @@ def _print_flight_history(db, craft):
     print(f"{B}{C}{'═' * 70}{R}\n")
 
 
-def _analyze_single_log(logfile, args, diff_raw=None):
+def _analyze_single_log(logfile, args, diff_raw=None, summary_only=False):
+    """Analyze a single blackbox log file.
+    
+    Args:
+        logfile: Path to log file
+        args: Command line arguments
+        diff_raw: Optional CLI diff text
+        summary_only: If True, skip verbose output/reports but still analyze
+                      and store in DB. Returns a summary dict.
+    
+    Returns:
+        dict with summary info if summary_only=True, else None
+    """
 
     # ── Parse headers FIRST (needed for auto-detection) ──
     raw_params = {}
@@ -3645,129 +4032,135 @@ def _analyze_single_log(logfile, args, diff_raw=None):
             pass
 
     # ── Show comprehensive banner ──
-    print(f"\n  ▲ INAV Blackbox Analyzer v{REPORT_VERSION}")
-    print(f"  Loading: {logfile}")
+    if not summary_only:
+        print(f"\n  ▲ INAV Blackbox Analyzer v{REPORT_VERSION}")
+        print(f"  Loading: {logfile}")
 
-    fw_rev = config.get("firmware_revision", "")
-    fw_date = config.get("firmware_date", "")
+        fw_rev = config.get("firmware_revision", "")
+        fw_date = config.get("firmware_date", "")
 
-    # Aircraft identification banner
-    print(f"\n  {'─'*66}")
-    if craft:
-        print(f"  Aircraft:  {craft}")
-    if fw_rev:
-        fw_str = fw_rev
-        if fw_date:
-            fw_str += f" ({fw_date})"
-        print(f"  Firmware:  {fw_str}")
-    print(f"  Platform:  {platform_type} ({n_motors} motors{f', {n_servos} servos' if n_servos else ''})")
+        # Aircraft identification banner
+        print(f"\n  {'─'*66}")
+        if craft:
+            print(f"  Aircraft:  {craft}")
+        if fw_rev:
+            fw_str = fw_rev
+            if fw_date:
+                fw_str += f" ({fw_date})"
+            print(f"  Firmware:  {fw_str}")
+        print(f"  Platform:  {platform_type} ({n_motors} motors{f', {n_servos} servos' if n_servos else ''})")
 
-    frame_str = f"{frame_inches}\"" if frame_inches else "5\" (default)"
-    prop_str = f"{prop_inches}\"×{n_blades}-blade" if prop_inches else f"5\"×{n_blades}-blade (default)"
-    if frame_source == "auto":
-        frame_str += f" (detected from craft name)"
-    elif frame_source == "conflict":
-        frame_str += f" (user override)"
-    print(f"  Frame:     {frame_str}")
-    print(f"  Props:     {prop_str}")
+        frame_str = f"{frame_inches}\"" if frame_inches else "5\" (default)"
+        prop_str = f"{prop_inches}\"×{n_blades}-blade" if prop_inches else f"5\"×{n_blades}-blade (default)"
+        if frame_source == "auto":
+            frame_str += f" (detected from craft name)"
+        elif frame_source == "conflict":
+            frame_str += f" (user override)"
+        print(f"  Frame:     {frame_str}")
+        print(f"  Props:     {prop_str}")
 
-    if detected_cells:
-        cell_str = f"{detected_cells}S"
-        if not args.cells and vbatref:
-            cell_str += f" (detected from vbatref={int(vbatref)/100:.1f}V)"
-        print(f"  Battery:   {cell_str}")
+        if detected_cells:
+            cell_str = f"{detected_cells}S"
+            if not args.cells and vbatref:
+                cell_str += f" (detected from vbatref={int(vbatref)/100:.1f}V)"
+            print(f"  Battery:   {cell_str}")
 
-    if args.kv:
-        print(f"  Motors:    {args.kv}KV")
+        if args.kv:
+            print(f"  Motors:    {args.kv}KV")
 
-    # Profile and thresholds
-    print(f"  Profile:   {profile['name']} ({profile['class']} class)")
-    if (frame_inches or 5) >= 8:
-        print(f"    Delay: <{profile['ok_delay_ms']}ms | OS: <{profile['ok_overshoot']}% | "
-              f"Filters: {profile['gyro_lpf_range'][0]}-{profile['gyro_lpf_range'][1]}Hz")
+        # Profile and thresholds
+        print(f"  Profile:   {profile['name']} ({profile['class']} class)")
+        if (frame_inches or 5) >= 8:
+            print(f"    Delay: <{profile['ok_delay_ms']}ms | OS: <{profile['ok_overshoot']}% | "
+                  f"Filters: {profile['gyro_lpf_range'][0]}-{profile['gyro_lpf_range'][1]}Hz")
 
-    # Warnings
-    if frame_source == "conflict":
-        print(f"\n  ⚠ FRAME SIZE CONFLICT: Craft name \"{craft}\" suggests {detected_frame}\" "
-              f"but --frame {args.frame} was specified.")
-        print(f"    Using {args.frame}\" as requested. If this is wrong, the analyzer will use "
-              f"incorrect thresholds.")
-    elif frame_source != "auto" and frame_inches is None:
-        if detected_frame is None and craft:
-            print(f"\n  ⚠ Could not detect frame size from craft name \"{craft}\".")
-            print(f"    Using 5\" defaults. Specify --frame N for accurate thresholds.")
-        elif not craft:
-            print(f"\n  ⚠ No craft name in log headers. Using 5\" defaults.")
-            print(f"    Specify --frame N for accurate thresholds.")
+        # Warnings
+        if frame_source == "conflict":
+            print(f"\n  ⚠ FRAME SIZE CONFLICT: Craft name \"{craft}\" suggests {detected_frame}\" "
+                  f"but --frame {args.frame} was specified.")
+            print(f"    Using {args.frame}\" as requested. If this is wrong, the analyzer will use "
+                  f"incorrect thresholds.")
+        elif frame_source != "auto" and frame_inches is None:
+            if detected_frame is None and craft:
+                print(f"\n  ⚠ Could not detect frame size from craft name \"{craft}\".")
+                print(f"    Using 5\" defaults. Specify --frame N for accurate thresholds.")
+            elif not craft:
+                print(f"\n  ⚠ No craft name in log headers. Using 5\" defaults.")
+                print(f"    Specify --frame N for accurate thresholds.")
 
-    print(f"  {'─'*66}")
+        print(f"  {'─'*66}")
 
     # ── Decode data ──
     if is_blackbox:
-        print(f"\n  Parsing {len(raw_params)} header parameters...")
-        print("  Decoding binary log (native)...")
-        data = decode_blackbox_native(logfile, raw_params)
+        if not summary_only:
+            print(f"\n  Parsing {len(raw_params)} header parameters...")
+            print("  Decoding binary log (native)...")
+        data = decode_blackbox_native(logfile, raw_params, quiet=summary_only)
     else:
-        print("\n  Parsing CSV...")
+        if not summary_only:
+            print("\n  Parsing CSV...")
         data = parse_csv_log(logfile)
 
     sr = data["sample_rate"]
-    print(f"  {data['n_rows']:,} rows | {sr:.0f}Hz | {data['time_s'][-1]:.1f}s")
+    if not summary_only:
+        print(f"  {data['n_rows']:,} rows | {sr:.0f}Hz | {data['time_s'][-1]:.1f}s")
 
-    if config_has_pid(config):
-        for ax in ["roll","pitch","yaw"]:
-            ff = config.get(f'{ax}_ff', '')
-            ff_str = f" FF={ff}" if ff else ""
-            print(f"  {ax.capitalize()} PID: P={config.get(f'{ax}_p','?')} I={config.get(f'{ax}_i','?')} D={config.get(f'{ax}_d','?')}{ff_str}")
-    else:
-        print("  ⚠ No PID values in headers — use .bbl for exact recommendations")
+        if config_has_pid(config):
+            for ax in ["roll","pitch","yaw"]:
+                ff = config.get(f'{ax}_ff', '')
+                ff_str = f" FF={ff}" if ff else ""
+                print(f"  {ax.capitalize()} PID: P={config.get(f'{ax}_p','?')} I={config.get(f'{ax}_i','?')} D={config.get(f'{ax}_d','?')}{ff_str}")
+        else:
+            print("  ⚠ No PID values in headers - use .bbl for exact recommendations")
 
-    if config_has_filters(config):
-        filt_parts = []
-        for k, l in [("gyro_lowpass_hz","Gyro LPF"),("dterm_lpf_hz","D-term LPF"),("yaw_lpf_hz","Yaw LPF")]:
-            v = config.get(k)
-            if v is not None and v != 0:
-                filt_parts.append(f"{l}={v}Hz")
-        dyn_en = config.get("dyn_notch_enabled")
-        if dyn_en and dyn_en not in (0, "0", "OFF"):
-            dyn_min = config.get("dyn_notch_min_hz", "?")
-            dyn_q = config.get("dyn_notch_q", "?")
-            filt_parts.append(f"DynNotch=ON(min={dyn_min}Hz,Q={dyn_q})")
-        rpm_en = config.get("rpm_filter_enabled")
-        if rpm_en and rpm_en not in (0, "0", "OFF"):
-            filt_parts.append("RPM=ON")
-        elif rpm_en is not None:
-            filt_parts.append("RPM=OFF")
-        if filt_parts:
-            print(f"  Filters: {', '.join(filt_parts)}")
+        if config_has_filters(config):
+            filt_parts = []
+            for k, l in [("gyro_lowpass_hz","Gyro LPF"),("dterm_lpf_hz","D-term LPF"),("yaw_lpf_hz","Yaw LPF")]:
+                v = config.get(k)
+                if v is not None and v != 0:
+                    filt_parts.append(f"{l}={v}Hz")
+            dyn_en = config.get("dyn_notch_enabled")
+            if dyn_en and dyn_en not in (0, "0", "OFF"):
+                dyn_min = config.get("dyn_notch_min_hz", "?")
+                dyn_q = config.get("dyn_notch_q", "?")
+                filt_parts.append(f"DynNotch=ON(min={dyn_min}Hz,Q={dyn_q})")
+            rpm_en = config.get("rpm_filter_enabled")
+            if rpm_en and rpm_en not in (0, "0", "OFF"):
+                filt_parts.append("RPM=ON")
+            elif rpm_en is not None:
+                filt_parts.append("RPM=OFF")
+            if filt_parts:
+                print(f"  Filters: {', '.join(filt_parts)}")
 
-    # Show diff-enriched config extras
-    if config.get("_diff_merged"):
-        diff_extras = []
-        if config.get("motor_poles"):
-            diff_extras.append(f"MotorPoles={config['motor_poles']}")
-        if config.get("motor_idle") is not None:
-            diff_extras.append(f"Idle={config['motor_idle']}")
-        if config.get("antigravity_gain") is not None:
-            diff_extras.append(f"AntiGrav={config['antigravity_gain']}")
-        if config.get("nav_alt_p") is not None:
-            diff_extras.append(f"NavAltP={config['nav_alt_p']}")
-        if config.get("level_p") is not None:
-            diff_extras.append(f"LevelP={config['level_p']}")
-        if diff_extras:
-            print(f"  Diff extras: {', '.join(diff_extras)}")
-        print(f"  {config['_diff_settings_count']} settings from CLI diff "
-              f"({config.get('_diff_unmapped_count', 0)} additional stored)")
+        # Show diff-enriched config extras
+        if config.get("_diff_merged"):
+            diff_extras = []
+            if config.get("motor_poles"):
+                diff_extras.append(f"MotorPoles={config['motor_poles']}")
+            if config.get("motor_idle") is not None:
+                diff_extras.append(f"Idle={config['motor_idle']}")
+            if config.get("antigravity_gain") is not None:
+                diff_extras.append(f"AntiGrav={config['antigravity_gain']}")
+            if config.get("nav_alt_p") is not None:
+                diff_extras.append(f"NavAltP={config['nav_alt_p']}")
+            if config.get("level_p") is not None:
+                diff_extras.append(f"LevelP={config['level_p']}")
+            if diff_extras:
+                print(f"  Diff extras: {', '.join(diff_extras)}")
+            print(f"  {config['_diff_settings_count']} settings from CLI diff "
+                  f"({config.get('_diff_unmapped_count', 0)} additional stored)")
 
     # ── RPM prediction ──
     rpm_range = estimate_rpm_range(args.kv, detected_cells or args.cells)
     prop_harmonics = None
     if rpm_range:
         cells_used = detected_cells or args.cells
-        print(f"  RPM estimate: {rpm_range[0]:,}–{rpm_range[1]:,} ({args.kv}KV × {cells_used}S)")
+        if not summary_only:
+            print(f"  RPM estimate: {rpm_range[0]:,}–{rpm_range[1]:,} ({args.kv}KV × {cells_used}S)")
         prop_harmonics = estimate_prop_harmonics(rpm_range, n_blades)
-        for h in prop_harmonics:
-            print(f"    {h['label']}: {h['min_hz']:.0f}–{h['max_hz']:.0f} Hz ({n_blades}-blade)")
+        if not summary_only:
+            for h in prop_harmonics:
+                print(f"    {h['label']}: {h['min_hz']:.0f}–{h['max_hz']:.0f} Hz ({n_blades}-blade)")
 
     # ── Phase lag estimation ──
     phase_lag = None
@@ -3775,30 +4168,64 @@ def _analyze_single_log(logfile, args, diff_raw=None):
         # Estimate at a frequency relevant to this frame class
         sig_freq = (profile["noise_band_mid"][0] + profile["noise_band_mid"][1]) / 4
         phase_lag = estimate_total_phase_lag(config, profile, sig_freq)
-        if phase_lag["total_degrees"] > 20:
+        if not summary_only and phase_lag["total_degrees"] > 20:
             print(f"  Filter phase lag: {phase_lag['total_degrees']:.0f}° ({phase_lag['total_ms']:.1f}ms) at {sig_freq:.0f}Hz")
 
-    print("  Analyzing...")
+    if not summary_only:
+        print("  Analyzing...")
     hover_osc = detect_hover_oscillation(data, sr)
     noise_results = [analyze_noise(data, ax, f"gyro_{ax.lower()}", sr) for ax in AXIS_NAMES]
     pid_results = [analyze_pid_response(data, i, sr) for i in range(3)]
-    motor_analysis = analyze_motors(data, sr)
+    motor_analysis = analyze_motors(data, sr, config)
     dterm_results = analyze_dterm_noise(data, sr)
 
     # ── Motor response time ──
     motor_response = analyze_motor_response(data, sr)
-    if motor_response and motor_response["motor_response_ms"] > 1:
+    if not summary_only and motor_response and motor_response["motor_response_ms"] > 1:
         print(f"  Motor response: {motor_response['motor_response_ms']:.1f}ms")
 
     plan = generate_action_plan(noise_results, pid_results, motor_analysis, dterm_results,
                                  config, data, profile, phase_lag, motor_response,
                                  rpm_range, prop_harmonics, hover_osc)
 
+    # ── Summary-only mode: store in DB and return summary ──
+    if summary_only:
+        summary = {
+            "score": plan["scores"]["overall"],
+            "duration": data["time_s"][-1] if "time_s" in data and len(data["time_s"]) > 0 else 0,
+            "idle": motor_analysis.get("idle_detected", False) if motor_analysis else False,
+            "verdict": plan.get("verdict", ""),
+            "verdict_short": _verdict_short(plan.get("verdict", "")),
+            "n_actions": len(plan.get("actions", [])),
+            "config_key": _config_fingerprint(config),
+            "logfile": logfile,
+        }
+        # Still store in DB
+        if not args.no_db:
+            try:
+                from inav_flight_db import FlightDB
+                db = FlightDB(args.db_path)
+                flight_id, is_new = db.store_flight(
+                    plan, config, data, hover_osc, motor_analysis,
+                    pid_results, noise_results, log_file=logfile, diff_raw=diff_raw)
+                db.close()
+                summary["flight_id"] = flight_id
+                summary["is_new"] = is_new
+            except Exception:
+                pass
+        return summary
+
     if not args.no_terminal:
         print_terminal_report(plan, noise_results, pid_results, motor_analysis, config, data,
                               show_narrative=not args.no_narrative, profile=profile)
 
-    if not args.no_html:
+    # ── Config review from diff (if available) ──
+    # Runs parameter analyzer checks on the FC's current config.
+    # Catches safety, nav, motor protocol issues that flight data alone can't detect.
+    if diff_raw and not args.no_terminal and plan["verdict"] != "GROUND_ONLY":
+        _print_config_review(diff_raw, config, frame_inches, plan)
+
+    if not args.no_html and plan["verdict"] != "GROUND_ONLY":
         print("  Generating report...")
         charts = {}
         vn = [n for n in noise_results if n]

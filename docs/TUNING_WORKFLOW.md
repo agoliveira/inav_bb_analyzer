@@ -1,4 +1,4 @@
-# INAV Tuning Workflow — Step by Step
+# INAV Tuning Workflow - Step by Step
 
 ## Phase 1: New Build Configuration
 
@@ -100,10 +100,10 @@ Open the HTML report. Key metrics to evaluate:
 
 ### 4.2 Apply Recommendations
 
-The analyzer generates CLI commands. Review them — don't blindly paste:
+The analyzer generates CLI commands. Review them - don't blindly paste:
 - PID changes are typically small increments (±10-20%)
 - Filter changes should be verified against your noise profile
-- Some recommendations may conflict — use judgment
+- Some recommendations may conflict - use judgment
 
 ### 4.3 Cross-Reference
 
@@ -128,7 +128,7 @@ This catches cases where your config and flight behavior disagree (e.g., EZ Tune
 
 ## Tips
 
-- **One axis at a time:** If the analyzer recommends changes to roll AND pitch, apply both — they're usually related.
+- **One axis at a time:** If the analyzer recommends changes to roll AND pitch, apply both - they're usually related.
 - **Don't chase perfection:** A tune quality of 70-80% is excellent for a long-range quad. Racing-level tuning (>90%) requires much more aggressive PIDs that trade stability for responsiveness.
 - **Wind matters:** Tune in calm conditions first. Wind affects all measurements.
 - **Props matter:** After changing props, the tune will shift. Re-analyze.

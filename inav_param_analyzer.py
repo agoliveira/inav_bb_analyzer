@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-INAV Parameter Analyzer — Analyze `diff all` output for configuration issues.
+INAV Parameter Analyzer - Analyze `diff all` output for configuration issues.
 
 Parses INAV CLI `diff all` output and checks for:
   - Safety issues (beepers, failsafe, voltage limits)
@@ -61,7 +61,7 @@ COMMON_MOTOR_POLES = {14: "most standard motors", 12: "some smaller motors"}
 
 # ─── Frame-Specific Starting Profiles ────────────────────────────────────────
 # Conservative baselines for large INAV multirotors.
-# These are intentionally soft — designed to be flyable on first hover,
+# These are intentionally soft - designed to be flyable on first hover,
 # then refined with the blackbox analyzer. Too low is sluggish, too high
 # oscillates. We err on the sluggish side.
 #
@@ -97,7 +97,7 @@ FRAME_PROFILES = {
         },
         "notes": [
             "7-inch is close to INAV defaults (designed for 5-7\"). PIDs are only slightly reduced.",
-            "If using triblades, reduce P by another 10-15% — they have more grip and respond faster.",
+            "If using triblades, reduce P by another 10-15% - they have more grip and respond faster.",
         ],
     },
     10: {
@@ -159,7 +159,7 @@ FRAME_PROFILES = {
         "notes": [
             "12-inch props have very high inertia. Low P is essential to avoid oscillation.",
             "Aerodynamic damping from large props reduces the need for D-term.",
-            "Focus on smooth flying — these quads are not designed for fast maneuvers.",
+            "Focus on smooth flying - these quads are not designed for fast maneuvers.",
             "Higher antigravity helps maintain altitude during throttle changes with heavy payloads.",
         ],
     },
@@ -190,9 +190,9 @@ FRAME_PROFILES = {
         },
         "notes": [
             "15-inch builds are at the edge of what INAV handles well. Very conservative PIDs.",
-            "Prop inertia is enormous — overcorrection is the main risk, not sluggishness.",
+            "Prop inertia is enormous - overcorrection is the main risk, not sluggishness.",
             "Test in calm conditions first. Wind amplifies any PID issues on large frames.",
-            "Consider reducing looptime to 250 (4kHz) if FC supports it — more filter headroom.",
+            "Consider reducing looptime to 250 (4kHz) if FC supports it - more filter headroom.",
         ],
     },
 }
@@ -246,7 +246,7 @@ def generate_setup_config(frame_inches, voltage="4S", use_case="longrange"):
         elif k.startswith("mc_p_") or k.startswith("mc_d_"):
             pids[k] = max(5, round(v * scale))
         elif k.startswith("mc_i_"):
-            # I-term scales less with voltage — it's about steady-state
+            # I-term scales less with voltage - it's about steady-state
             pids[k] = max(20, round(v * (1.0 + (scale - 1.0) * 0.3)))
         else:
             pids[k] = v
@@ -273,7 +273,7 @@ def print_setup_report(config):
     voltage = config["voltage"]
 
     print(f"\n{B}{C}{'═'*70}{R}")
-    print(f"{B}{C}  INAV Starting Configuration — {frame}-inch ({voltage}){R}")
+    print(f"{B}{C}  INAV Starting Configuration - {frame}-inch ({voltage}){R}")
     print(f"{B}{C}{'═'*70}{R}")
     print(f"  {DIM}{profile['description']}{R}")
     print(f"  {DIM}Typical AUW: {profile['typical_auw']} | Motors: {profile['typical_motors']}{R}")
@@ -284,7 +284,7 @@ def print_setup_report(config):
 
     print(f"\n{B}{C}{'─'*70}{R}")
     print(f"  {B}⚠ IMPORTANT:{R}")
-    print(f"  {DIM}These are CONSERVATIVE starting values — safe for first hover.{R}")
+    print(f"  {DIM}These are CONSERVATIVE starting values - safe for first hover.{R}")
     print(f"  {DIM}The quad may feel sluggish. That's intentional.{R}")
     print(f"  {DIM}Fly, log blackbox data, then use the blackbox analyzer to refine.{R}")
     print(f"{B}{C}{'─'*70}{R}")
@@ -294,9 +294,9 @@ def print_setup_report(config):
     print(f"\n  {B}STARTING PIDs:{R}")
     print(f"             {'P':>5}  {'I':>5}  {'D':>5}")
     for axis in ("roll", "pitch", "yaw"):
-        p = pids.get(f"mc_p_{axis}", "—")
-        i = pids.get(f"mc_i_{axis}", "—")
-        d = pids.get(f"mc_d_{axis}", "—")
+        p = pids.get(f"mc_p_{axis}", "-")
+        i = pids.get(f"mc_i_{axis}", "-")
+        d = pids.get(f"mc_d_{axis}", "-")
         print(f"    {axis.capitalize():6}   {p:>5}  {i:>5}  {d:>5}")
 
     # Filters
@@ -324,7 +324,7 @@ def print_setup_report(config):
 
     # CLI commands
     print(f"\n{B}{C}{'─'*70}{R}")
-    print(f"  {B}INAV CLI — paste into Configurator CLI tab:{R}")
+    print(f"  {B}INAV CLI - paste into Configurator CLI tab:{R}")
     print(f"{B}{C}{'─'*70}{R}")
     print()
 
@@ -620,7 +620,7 @@ def check_safety(parsed):
             CRITICAL, "Safety", "Critical beeper warnings disabled",
             f"These beepers are disabled: {', '.join(missing_critical)}. "
             f"You will get no audible warning for low battery, signal loss, or hardware failure. "
-            f"This is extremely dangerous — a silent low battery can cause a crash with no warning.",
+            f"This is extremely dangerous - a silent low battery can cause a crash with no warning.",
             setting="beeper",
             current=f"{len(missing_critical)} critical beepers off",
             recommended="Enable at minimum BAT_CRIT_LOW, BAT_LOW, RX_LOST",
@@ -649,7 +649,7 @@ def check_safety(parsed):
     elif fs_proc == "RTH" or fs_proc == 2:
         findings.append(Finding(
             OK, "Safety", "Failsafe set to RTH",
-            "Good — the quad will attempt to return home on signal loss.",
+            "Good - the quad will attempt to return home on signal loss.",
             setting="failsafe_procedure",
             current="RTH"))
 
@@ -679,7 +679,7 @@ def check_safety(parsed):
                     WARNING, "Safety", "DSHOT beeper also disabled",
                     "With physical beeper warnings off AND DSHOT beeper disabled, "
                     "you have no way to find the quad if it lands in tall grass. "
-                    "DSHOT beeper uses the motors to beep — it's your last-resort finder.",
+                    "DSHOT beeper uses the motors to beep - it's your last-resort finder.",
                     setting="dshot_beeper_enabled",
                     current="OFF",
                     recommended="ON",
@@ -699,7 +699,7 @@ def check_motors_protocol(parsed):
     if is_dshot:
         findings.append(Finding(
             OK, "Motors", f"Motor protocol: {protocol}",
-            "DSHOT digital protocol — good for consistent motor response.",
+            "DSHOT digital protocol - good for consistent motor response.",
             setting="motor_pwm_protocol",
             current=str(protocol)))
     else:
@@ -712,7 +712,7 @@ def check_motors_protocol(parsed):
             recommended="DSHOT300 or DSHOT600",
             cli_fix="set motor_pwm_protocol = DSHOT300"))
 
-    # RPM filter — INAV uses ESC telemetry wire (not bidirectional DSHOT)
+    # RPM filter - INAV uses ESC telemetry wire (not bidirectional DSHOT)
     rpm_filter = get_setting(parsed, "rpm_gyro_filter_enabled", None)
 
     # Check if ESC telemetry is configured on any serial port
@@ -746,7 +746,7 @@ def check_motors_protocol(parsed):
     if motorstop is False:
         findings.append(Finding(
             OK, "Motors", "Motor stop on low throttle: OFF",
-            "Motors keep spinning at idle — good for flight stability.",
+            "Motors keep spinning at idle - good for flight stability.",
             setting="motorstop_on_low"))
 
     # Throttle idle
@@ -808,12 +808,12 @@ def check_filters(parsed, frame_inches=None):
             recommended="Disable to use manual PIDs",
             cli_fix="set ez_enabled = OFF"))
     elif ez_filter is not None and ez_enabled is None:
-        # ez_ params exist but ez_enabled not in diff (default OFF) — just informational
+        # ez_ params exist but ez_enabled not in diff (default OFF) - just informational
         findings.append(Finding(
             INFO, "Filters", "EZ Tune parameters present but EZ Tune appears disabled",
             f"Residual EZ Tune parameters found (ez_filter_hz={ez_filter}) but ez_enabled "
             f"is not set (default OFF). These values are not being used. If you want to clean "
-            f"up, you can leave them — they have no effect while EZ Tune is disabled.",
+            f"up, you can leave them - they have no effect while EZ Tune is disabled.",
             setting="ez_filter_hz",
             current=f"{ez_filter} (inactive)"))
 
@@ -822,7 +822,7 @@ def check_filters(parsed, frame_inches=None):
         if frame_inches and frame_inches >= 8:
             if gyro_lpf > 80:
                 findings.append(Finding(
-                    WARNING, "Filters", f"Gyro LPF at {gyro_lpf}Hz — high for {frame_inches}-inch",
+                    WARNING, "Filters", f"Gyro LPF at {gyro_lpf}Hz - high for {frame_inches}-inch",
                     f"Large props generate noise at lower frequencies. For {frame_inches}-inch, "
                     f"gyro LPF between 40-80Hz is typical. Higher values let more motor noise "
                     f"reach the PID controller.",
@@ -832,14 +832,14 @@ def check_filters(parsed, frame_inches=None):
                     cli_fix=f"set gyro_main_lpf_hz = 65"))
             else:
                 findings.append(Finding(
-                    OK, "Filters", f"Gyro LPF at {gyro_lpf}Hz — reasonable for {frame_inches}-inch",
+                    OK, "Filters", f"Gyro LPF at {gyro_lpf}Hz - reasonable for {frame_inches}-inch",
                     "Filter cutoff is in the expected range for this prop size.",
                     setting="gyro_main_lpf_hz",
                     current=str(gyro_lpf)))
         elif frame_inches and frame_inches <= 5:
             if gyro_lpf < 80:
                 findings.append(Finding(
-                    INFO, "Filters", f"Gyro LPF at {gyro_lpf}Hz — conservative for {frame_inches}-inch",
+                    INFO, "Filters", f"Gyro LPF at {gyro_lpf}Hz - conservative for {frame_inches}-inch",
                     "This is quite low for a small quad. You might be losing responsiveness. "
                     "90-150Hz is typical for 5-inch unless you have vibration issues.",
                     setting="gyro_main_lpf_hz",
@@ -856,7 +856,7 @@ def check_filters(parsed, frame_inches=None):
         if isinstance(dyn_notch_min, (int, float)):
             if frame_inches and frame_inches >= 8 and dyn_notch_min > 60:
                 findings.append(Finding(
-                    INFO, "Filters", f"Dynamic notch min_hz = {dyn_notch_min}Hz — may miss low-freq noise",
+                    INFO, "Filters", f"Dynamic notch min_hz = {dyn_notch_min}Hz - may miss low-freq noise",
                     f"Large props can produce harmonics below {dyn_notch_min}Hz. "
                     f"Consider lowering to 40-50Hz for {frame_inches}-inch.",
                     setting="dynamic_gyro_notch_min_hz",
@@ -878,7 +878,7 @@ def check_filters(parsed, frame_inches=None):
     if isinstance(kalman_q, (int, float)):
         if kalman_q > 300:
             findings.append(Finding(
-                INFO, "Filters", f"Setpoint Kalman Q={kalman_q} — very aggressive",
+                INFO, "Filters", f"Setpoint Kalman Q={kalman_q} - very aggressive",
                 "High Kalman Q means less smoothing on the setpoint. "
                 "This can make the quad feel very snappy but also amplify RC noise.",
                 setting="setpoint_kalman_q",
@@ -896,7 +896,7 @@ def check_pid_config(parsed, frame_inches=None):
 
     # Check if EZ Tune is active in this profile
     ez_active = profile.get("ez_enabled", get_setting(parsed, "ez_enabled", None)) is True
-    ez_note = " EZ Tune does NOT control this setting — it needs to be set manually." if ez_active else ""
+    ez_note = " EZ Tune does NOT control this setting - it needs to be set manually." if ez_active else ""
 
     # I-term relax
     iterm_relax = profile.get("mc_iterm_relax", get_setting(parsed, "mc_iterm_relax", "RP"))
@@ -936,7 +936,7 @@ def check_pid_config(parsed, frame_inches=None):
     if d_boost_min == 1.0 and d_boost_max == 1.0 and other_profiles_have_dboost:
         findings.append(Finding(
             WARNING, "PID", f"Active profile {pnum} has no D-boost, other profiles do",
-            "D-boost dynamically adjusts D-term based on setpoint changes — it gives more D during "
+            "D-boost dynamically adjusts D-term based on setpoint changes - it gives more D during "
             "fast maneuvers (reduces overshoot) and less during straight flight (less noise). "
             "Your other profiles have it configured but the active one uses defaults. "
             f"Likely a configuration oversight.{ez_note}",
@@ -969,7 +969,7 @@ def check_pid_config(parsed, frame_inches=None):
     if isinstance(tpa_rate, (int, float)) and tpa_rate > 0:
         if isinstance(tpa_bp, (int, float)) and tpa_bp < 1300:
             findings.append(Finding(
-                INFO, "PID", f"TPA breakpoint at {tpa_bp} — quite low",
+                INFO, "PID", f"TPA breakpoint at {tpa_bp} - quite low",
                 f"TPA starts reducing PID gains at throttle {tpa_bp}. This means gains start "
                 f"dropping early. For aggressive flying, 1350-1500 is more common.",
                 setting="tpa_breakpoint",
@@ -1017,7 +1017,7 @@ def check_navigation(parsed):
         alt_m = rth_alt / 100
         if alt_m > 100:
             findings.append(Finding(
-                WARNING, "Navigation", f"RTH altitude: {alt_m:.0f}m — very high",
+                WARNING, "Navigation", f"RTH altitude: {alt_m:.0f}m - very high",
                 "High RTH altitude means longer return time and more battery used. "
                 "Also may exceed legal altitude limits in many countries (120m/400ft).",
                 setting="nav_rth_altitude",
@@ -1025,7 +1025,7 @@ def check_navigation(parsed):
                 recommended="30-60m"))
         elif alt_m < 15:
             findings.append(Finding(
-                WARNING, "Navigation", f"RTH altitude: {alt_m:.0f}m — quite low",
+                WARNING, "Navigation", f"RTH altitude: {alt_m:.0f}m - quite low",
                 "Low RTH altitude risks collision with trees, buildings, or terrain. "
                 "30-50m is typical for safe RTH.",
                 setting="nav_rth_altitude",
@@ -1044,7 +1044,7 @@ def check_navigation(parsed):
     if isinstance(hover, (int, float)):
         if hover > 1600:
             findings.append(Finding(
-                WARNING, "Navigation", f"Hover throttle: {hover} — high",
+                WARNING, "Navigation", f"Hover throttle: {hover} - high",
                 "Hover throttle above 1600 means the quad is heavy relative to motor power. "
                 "Altitude hold and nav may be sluggish because there's limited headroom for correction.",
                 setting="nav_mc_hover_thr",
@@ -1052,7 +1052,7 @@ def check_navigation(parsed):
                 recommended="1200-1500"))
         elif hover < 1100:
             findings.append(Finding(
-                INFO, "Navigation", f"Hover throttle: {hover} — very low",
+                INFO, "Navigation", f"Hover throttle: {hover} - very low",
                 "This suggests very powerful motors relative to weight. "
                 "Altitude hold may be twitchy. Consider lowering PID gains for nav.",
                 setting="nav_mc_hover_thr",
@@ -1065,7 +1065,7 @@ def check_navigation(parsed):
     if pos_p is not None and isinstance(pos_p, (int, float)):
         if pos_p > 50:
             findings.append(Finding(
-                WARNING, "Navigation", f"Position hold P = {pos_p} — aggressive",
+                WARNING, "Navigation", f"Position hold P = {pos_p} - aggressive",
                 "High position P gain can cause oscillation (salad bowling) in position hold and RTH. "
                 "The quad overcorrects, overshoots, and oscillates around the target position.",
                 setting="nav_mc_pos_xy_p",
@@ -1074,7 +1074,7 @@ def check_navigation(parsed):
                 cli_fix=f"set nav_mc_pos_xy_p = 30"))
         elif pos_p < 15:
             findings.append(Finding(
-                INFO, "Navigation", f"Position hold P = {pos_p} — conservative",
+                INFO, "Navigation", f"Position hold P = {pos_p} - conservative",
                 "Low position P may result in slow corrections and drifting in wind.",
                 setting="nav_mc_pos_xy_p",
                 current=str(pos_p)))
@@ -1082,7 +1082,7 @@ def check_navigation(parsed):
     if heading_p is not None and isinstance(heading_p, (int, float)):
         if heading_p > 60:
             findings.append(Finding(
-                INFO, "Navigation", f"Nav heading P = {heading_p} — high",
+                INFO, "Navigation", f"Nav heading P = {heading_p} - high",
                 "High heading P during navigation can cause yaw oscillation. "
                 "Default is 60, consider lowering if you see heading wobble during RTH.",
                 setting="nav_mc_heading_p",
@@ -1169,7 +1169,7 @@ def check_gps(parsed):
             elif spread > 25:
                 findings.append(Finding(
                     INFO, "GPS",
-                    f"Compass gain spread: {spread:.0f}% — borderline",
+                    f"Compass gain spread: {spread:.0f}% - borderline",
                     f"Mag gains: X={mag_gains[0]}, Y={mag_gains[1]}, Z={mag_gains[2]}. "
                     f"This is borderline acceptable. If you see heading drift in poshold "
                     f"or toilet-bowling, recalibrate the compass.",
@@ -1264,17 +1264,17 @@ def check_battery(parsed):
                     current=f"{min_v:.2f}V"))
             else:
                 findings.append(Finding(
-                    WARNING, "Battery", f"Minimum cell voltage: {min_v:.2f}V — low for LiPo",
+                    WARNING, "Battery", f"Minimum cell voltage: {min_v:.2f}V - low for LiPo",
                     "If using LiPo batteries, going below 3.0V per cell causes permanent damage. "
                     "3.3V is the recommended minimum for LiPo. If you're running Li-ion cells "
-                    "(18650/21700), 2.5-2.8V is normal — you can ignore this warning.",
+                    "(18650/21700), 2.5-2.8V is normal - you can ignore this warning.",
                     setting="vbat_min_cell_voltage",
                     current=f"{min_v:.2f}V",
                     recommended="330 (3.30V) for LiPo, 270 (2.70V) for Li-ion",
                     cli_fix="set vbat_min_cell_voltage = 330"))
         elif min_v < 3.2:
             findings.append(Finding(
-                INFO, "Battery", f"Minimum cell voltage: {min_v:.2f}V — low side",
+                INFO, "Battery", f"Minimum cell voltage: {min_v:.2f}V - low side",
                 "Below 3.2V accelerates LiPo wear. 3.3-3.5V is safer.",
                 setting="vbat_min_cell_voltage",
                 current=f"{min_v:.2f}V",
@@ -1357,7 +1357,7 @@ def check_general(parsed):
     if str(airmode).upper() == "THROTTLE_THRESHOLD":
         findings.append(Finding(
             OK, "General", "Airmode: throttle threshold",
-            "Airmode activates above throttle threshold — good for preventing accidental "
+            "Airmode activates above throttle threshold - good for preventing accidental "
             "motor spin on the ground.",
             setting="airmode_type",
             current="THROTTLE_THRESHOLD"))
@@ -1435,9 +1435,9 @@ def print_report(parsed, findings, frame_inches=None):
 
     print(f"\n  {B}SUMMARY:{R}")
     if counts[CRITICAL]:
-        print(f"    {RED}{B}{counts[CRITICAL]} CRITICAL{R} — fix before flying")
+        print(f"    {RED}{B}{counts[CRITICAL]} CRITICAL{R} - fix before flying")
     if counts[WARNING]:
-        print(f"    {Y}{B}{counts[WARNING]} WARNING{R} — should address")
+        print(f"    {Y}{B}{counts[WARNING]} WARNING{R} - should address")
     if counts[INFO]:
         print(f"    {C}{counts[INFO]} suggestions{R}")
     if counts[OK]:
@@ -1502,7 +1502,7 @@ def print_report(parsed, findings, frame_inches=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"INAV Parameter Analyzer v{VERSION} — Check diff all for issues",
+        description=f"INAV Parameter Analyzer v{VERSION} - Check diff all for issues",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
             Modes:

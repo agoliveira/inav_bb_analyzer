@@ -2,17 +2,26 @@
 
 All notable changes to INAV Toolkit.
 
-## [2026-02-21] — Blackbox Analyzer v2.12.0
+## [2026-02-22] - Blackbox Analyzer v2.12.1
+
+### Fixed
+- **MSP download speed regression**: Fixed 100x speed drop (2 KB/s vs 200 KB/s) when downloading blackbox through the analyzer. Root cause: `_recv()` hot-spun at 100% CPU when the serial buffer held a partial MSP frame with no new data arriving. In the lightweight standalone `inav_msp.py` process this was harmless, but in the analyzer process (89,000+ GC-tracked objects from numpy/scipy/matplotlib) the spin competed with Python's garbage collector and OS USB interrupt servicing, causing FC USB flow control back-pressure. Fix: 200us sleep when waiting for partial frame completion.
+- **Em dash cleanup**: Replaced all Unicode em dashes with ASCII hyphens across all source files and documentation.
+
+### Changed
+- **Automatic diff pull on --device**: `diff all` is now pulled automatically when the FC is connected (previously required explicit `--diff` flag). Enables session detection, CONFIG REVIEW, and mismatch detection without extra flags.
+
+## [2026-02-21] - Blackbox Analyzer v2.12.0
 
 ### Added
-- **Flight history database** (`inav_flight_db.py`): SQLite database stores analysis results from every flight — scores, per-axis oscillation data, PID values, filter config, motor balance, and actions. Enables progression tracking across tuning sessions. Zero external dependencies (Python stdlib sqlite3).
+- **Flight history database** (`inav_flight_db.py`): SQLite database stores analysis results from every flight - scores, per-axis oscillation data, PID values, filter config, motor balance, and actions. Enables progression tracking across tuning sessions. Zero external dependencies (Python stdlib sqlite3).
 - **Multi-log splitter**: Dataflash dumps containing multiple arm/disarm cycles are automatically detected and split into individual flights. Each is analyzed separately with per-flight progression tracking.
 - **Flight progression tracking**: After each analysis, the database compares with the previous flight for the same craft and shows score deltas, oscillation changes, and PID value changes. Trend detection (improving/stable/degrading).
 - **MSP CLI diff merge**: New `--diff` flag pulls the full `diff all` configuration from the FC before downloading blackbox data. Settings missing from blackbox headers (motor_poles, nav PIDs, rates, level mode, antigravity) are enriched from the diff. Mismatches between blackbox and current FC config are detected and displayed.
 - **`--history` flag**: Shows a tabular flight history for the craft with scores, verdicts, and progression summary.
 - **`--db-path` / `--no-db` flags**: Custom database path or skip storage entirely.
 
-## [2026-02-21] — Blackbox Analyzer v2.11.0
+## [2026-02-21] - Blackbox Analyzer v2.11.0
 
 ### Fixed
 - **Removed `profile 1` CLI command**: INAV 9 CLI does not support profile switching. The v2.10.0 fix incorrectly emitted `profile 1` before profile-scoped parameters, causing CLI errors.
@@ -25,7 +34,7 @@ All notable changes to INAV Toolkit.
 
 ### Added
 - **Hover oscillation detection**: Detects oscillation during hover (no stick input) by analyzing gyro variance in centered-stick segments. Classifies severity (mild/moderate/severe), identifies the dominant frequency, and diagnoses the cause: low-frequency (~2-10Hz) = P too high, mid-frequency (~10-25Hz) = P/D interaction, high-frequency (~25-50Hz) = D-term noise, very high (~50Hz+) = filter gap. Generates CRITICAL/IMPORTANT actions with aggressive P/D reductions. Oscillation actions take priority over regular PID recommendations using oscillation-first enforcement (similar to filter-first).
-- **Direct FC communication via MSP**: New `--device` flag downloads blackbox data directly from the flight controller over USB serial. Auto-detects INAV FCs, saves logs with sensible names (craft_timestamp.bbl), and optionally erases dataflash after download. Feeds directly into the analysis pipeline — no more switching to INAV Configurator to download logs.
+- **Direct FC communication via MSP**: New `--device` flag downloads blackbox data directly from the flight controller over USB serial. Auto-detects INAV FCs, saves logs with sensible names (craft_timestamp.bbl), and optionally erases dataflash after download. Feeds directly into the analysis pipeline - no more switching to INAV Configurator to download logs.
 - **New module `inav_msp.py`**: Standalone MSP v2 protocol implementation for INAV. Handles FC identification, dataflash summary/read/erase. Can also be used independently for scripting.
 - **Gyro oscillation detection**: Even without stick inputs, the analyzer now measures gyro variance to detect wobble/oscillation during hover. This feeds into the quality score as a PID proxy when step response data is unavailable.
 - **Auto-detect frame size from craft name**: Parses the craft name header (e.g., "NAZGUL 10") to automatically determine frame size. No more silent 5" defaults when the log clearly says otherwise.
@@ -38,7 +47,7 @@ All notable changes to INAV Toolkit.
 - Headers are now parsed before building the frame profile, enabling auto-detection to inform profile selection.
 - RPM prediction now uses auto-detected cell count when `--cells` is not explicitly provided.
 
-## [2025-02-21] — Blackbox Analyzer v2.10.0
+## [2025-02-21] - Blackbox Analyzer v2.10.0
 
 ### Fixed
 - **Filter-first enforcement**: When filter changes are needed, PID recommendations are now deferred until after filters are fixed and a re-fly. Previously, the analyzer would recommend both filter and PID changes simultaneously, leading users to raise D-term gains into wide-open filters, amplifying noise and creating a downward tuning spiral.
@@ -50,11 +59,11 @@ All notable changes to INAV Toolkit.
 - State JSON now includes a `deferred_actions` array alongside `actions`, making it clear which recommendations require a re-fly first.
 - HTML report shows deferred PID changes in a distinct visual section rather than mixing them with actionable filter fixes.
 
-## [2025-02-20] — Project Restructure
+## [2025-02-20] - Project Restructure
 
 ### Added
 - Project documentation: README, detailed docs per tool, tuning workflow guide
-- VTOL Configurator v1.0.1 — new tool for validating VTOL mixer profiles
+- VTOL Configurator v1.0.1 - new tool for validating VTOL mixer profiles
 - Parameter Analyzer setup mode (`--setup`) for generating starting configs
 
 ### Blackbox Analyzer v2.9.0
@@ -62,22 +71,22 @@ All notable changes to INAV Toolkit.
   - PT1, PT2, PT3: correct cascaded first-order phase
   - BIQUAD: proper H(s) = ωc² / (s² + (ωc/Q)s + ωc²) with Q factor support
   - Previous version approximated BIQUAD as cascaded PT1 which was inaccurate at high Q
-- **Fixed:** RPM filter recommendation — correctly states INAV requires ESC telemetry wire, not bidirectional DSHOT (which is Betaflight-only)
+- **Fixed:** RPM filter recommendation - correctly states INAV requires ESC telemetry wire, not bidirectional DSHOT (which is Betaflight-only)
 
 ### Parameter Analyzer v1.1.0
 - **Added:** `--setup` mode for generating starting PIDs by frame size (7/10/12/15") and voltage (4S/6S/8S/12S)
-- **Added:** Li-ion battery detection — uses capacity heuristic (≥7000mAh + low min voltage) to adjust severity
+- **Added:** Li-ion battery detection - uses capacity heuristic (≥7000mAh + low min voltage) to adjust severity
 - **Added:** ESC telemetry serial port check for RPM filter validation
 - **Fixed:** Removed all bidirectional DSHOT references (not supported in INAV)
-- **Fixed:** EZ Tune detection — checks `ez_enabled` flag, not presence of `ez_*` parameters
-- **Fixed:** Compass calibration quality check — mag gain spread analysis
+- **Fixed:** EZ Tune detection - checks `ez_enabled` flag, not presence of `ez_*` parameters
+- **Fixed:** Compass calibration quality check - mag gain spread analysis
 
 ### VTOL Configurator v1.0.1
-- **Fixed:** Mode IDs — MIXER PROFILE 2 is mode 62, MIXER TRANSITION is mode 63 (was using incorrect Betaflight-derived values)
+- **Fixed:** Mode IDs - MIXER PROFILE 2 is mode 62, MIXER TRANSITION is mode 63 (was using incorrect Betaflight-derived values)
 - **Added:** Control profile linking validation (`mixer_control_profile_linking`)
 - **Added:** INAV mode name lookup table for readable output
 
-## [2025-02-17] — Blackbox Analyzer v2.8.0
+## [2025-02-17] - Blackbox Analyzer v2.8.0
 
 ### Added
 - Native binary blackbox decoder (no external tools needed)
@@ -90,7 +99,7 @@ All notable changes to INAV Toolkit.
 - JSON state output for automation
 - Frame-size-aware recommendations
 
-## [2025-02-17] — Parameter Analyzer v1.0.0
+## [2025-02-17] - Parameter Analyzer v1.0.0
 
 ### Added
 - `diff all` parser with profile support

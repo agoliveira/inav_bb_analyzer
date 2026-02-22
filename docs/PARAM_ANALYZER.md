@@ -1,4 +1,4 @@
-# Parameter Analyzer — Detailed Documentation
+# Parameter Analyzer - Detailed Documentation
 
 ## Overview
 
@@ -52,9 +52,9 @@ echo "diff all" | picocom /dev/ttyACM0 -b 115200 | python3 inav_param_analyzer.p
 
 | Level | Icon | Meaning |
 |-------|------|---------|
-| **CRITICAL** | ✗ | Safety risk — fix before flying |
-| **WARNING** | ⚠ | Performance issue — should address |
-| **INFO** | ℹ | Suggestion — consider addressing |
+| **CRITICAL** | ✗ | Safety risk - fix before flying |
+| **WARNING** | ⚠ | Performance issue - should address |
+| **INFO** | ℹ | Suggestion - consider addressing |
 | **OK** | ✓ | Check passed |
 
 ## Check Categories
@@ -68,7 +68,7 @@ echo "diff all" | picocom /dev/ttyACM0 -b 115200 | python3 inav_param_analyzer.p
 ### Motors
 
 - **Protocol:** Validates DSHOT300/600 usage.
-- **RPM filter:** If `rpm_gyro_filter_enabled` is ON, checks that ESC telemetry is configured on a serial port (function 4096). INAV uses the ESC telemetry wire — not bidirectional DSHOT.
+- **RPM filter:** If `rpm_gyro_filter_enabled` is ON, checks that ESC telemetry is configured on a serial port (function 4096). INAV uses the ESC telemetry wire - not bidirectional DSHOT.
 - **Motor stop:** Warns if motor stop on low is enabled (dangerous for multirotor).
 - **Throttle idle:** Validates reasonable idle percentage.
 
@@ -80,7 +80,7 @@ echo "diff all" | picocom /dev/ttyACM0 -b 115200 | python3 inav_param_analyzer.p
 
 ### PIDs
 
-- **Cross-profile consistency:** Compares settings across control profiles. Catches cases where one profile has iterm_relax RPY, D-boost, or antigravity but another doesn't — usually from incomplete configuration.
+- **Cross-profile consistency:** Compares settings across control profiles. Catches cases where one profile has iterm_relax RPY, D-boost, or antigravity but another doesn't - usually from incomplete configuration.
 - **EZ Tune detection:** Correctly detects whether EZ Tune is active (checks `ez_enabled`, not just presence of `ez_*` params in diff). Warns that manual PID changes will be overwritten if EZ Tune is ON.
 - **TPA:** Validates breakpoint isn't too low for the quad's hover throttle.
 
@@ -109,7 +109,7 @@ echo "diff all" | picocom /dev/ttyACM0 -b 115200 | python3 inav_param_analyzer.p
 - Essential fields for PID analysis (GYRO_RAW, MOTORS, RC_COMMAND)
 - Nav fields for navigation analysis (NAV_ACC, NAV_POS)
 
-## Setup Mode — Frame Profiles
+## Setup Mode - Frame Profiles
 
 Conservative starting values designed for safe first hover:
 
@@ -127,7 +127,7 @@ Conservative starting values designed for safe first hover:
 
 ### 15-inch (cine lifter)
 - Typical: 5515-7015 motors, 4000-10000g AUW
-- Most conservative PIDs — overcorrection is the main risk
+- Most conservative PIDs - overcorrection is the main risk
 
 ### Voltage Scaling
 

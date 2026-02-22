@@ -181,18 +181,17 @@ class FlightDB:
         total_frames = len(data.get("time_s", []))
 
         # ── Deduplication ──
-        # Match on log filename + duration + frame count to detect re-analysis
-        # of the same flight. Uses basename so path differences don't matter.
-        if log_file:
-            log_basename = os.path.basename(log_file)
-            existing = conn.execute("""
-                SELECT id FROM flights
-                WHERE craft = ? AND total_frames = ?
-                AND ABS(duration_s - ?) < 0.1
-                AND log_file LIKE ?
-            """, (craft, total_frames, duration, f"%{log_basename}")).fetchone()
-            if existing:
-                return existing[0], False  # (flight_id, is_new=False)
+        # Content-based: match on craft + total_frames + duration + firmware.
+        # This catches re-downloads of the same flash (different filenames)
+        # as well as re-analysis of the same file.
+        existing = conn.execute("""
+            SELECT id FROM flights
+            WHERE craft = ? AND total_frames = ?
+            AND ABS(duration_s - ?) < 0.1
+            AND firmware = ?
+        """, (craft, total_frames, duration, firmware)).fetchone()
+        if existing:
+            return existing[0], False  # (flight_id, is_new=False)
 
         # Insert flight record
         cur = conn.execute("""
@@ -361,13 +360,21 @@ class FlightDB:
             flights: list of simplified flight records (oldest first)
             trend: "improving", "stable", "degrading", or "insufficient"
             changes: list of notable changes between flights
+
+        Ground-only flights (armed but never flew) are excluded from
+        progression since they have no meaningful scores.
         """
         history = self.get_craft_history(craft, limit)
         if not history:
             return {"flights": [], "trend": "insufficient", "changes": []}
 
-        # Reverse to chronological order
-        flights = list(reversed(history))
+        # Reverse to chronological order, filter out ground-only flights
+        flights = [f for f in reversed(history)
+                   if f.get("verdict") != "GROUND_ONLY"
+                   and f.get("overall_score") is not None]
+
+        if not flights:
+            return {"flights": [], "trend": "insufficient", "changes": []}
 
         simplified = []
         for f in flights:

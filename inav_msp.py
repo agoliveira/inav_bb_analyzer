@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-INAV MSP — MultiWii Serial Protocol v2 communication for INAV flight controllers.
+INAV MSP - MultiWii Serial Protocol v2 communication for INAV flight controllers.
 
 Handles serial communication with INAV FCs for:
   - Flight controller identification (firmware, craft name, board)
@@ -26,6 +26,11 @@ import os
 import struct
 import sys
 import time
+
+try:
+    import serial
+except ImportError:
+    serial = None  # Checked in open()
 
 VERSION = "1.0.0"
 
@@ -130,7 +135,7 @@ def find_serial_ports():
     Returns list of port paths, ordered by likelihood (ACM first, then USB).
     """
     candidates = []
-    # USB CDC (STM32 DFU/VCP) — most common for modern FCs
+    # USB CDC (STM32 DFU/VCP) - most common for modern FCs
     candidates.extend(sorted(glob.glob("/dev/ttyACM*")))
     # FTDI / CP2102 / CH340
     candidates.extend(sorted(glob.glob("/dev/ttyUSB*")))
@@ -146,7 +151,7 @@ def auto_detect_fc(baudrate=115200, timeout=2.0):
     """Scan serial ports and return the first one that responds as INAV.
 
     Returns:
-        (INAVDevice, info_dict) on success — device is open, caller must close
+        (INAVDevice, info_dict) on success - device is open, caller must close
         (None, None) if no FC found
     """
     ports = find_serial_ports()
@@ -184,6 +189,7 @@ class INAVDevice:
         self.timeout = timeout
         self._ser = None
         self._info = None
+        self._rxbuf = b""  # Persistent receive buffer for pipelining
 
     def open(self):
         """Open serial connection."""
@@ -207,11 +213,15 @@ class INAVDevice:
         time.sleep(0.1)
         self._ser.reset_input_buffer()
         self._ser.reset_output_buffer()
+        self._rxbuf = b""
 
     def close(self):
         """Close serial connection."""
         if self._ser and self._ser.is_open:
-            self._ser.close()
+            try:
+                self._ser.close()
+            except BaseException:
+                pass
         self._ser = None
 
     def __enter__(self):
@@ -221,50 +231,87 @@ class INAVDevice:
     def __exit__(self, *args):
         self.close()
 
-    def _send(self, cmd, payload=b""):
+    def _send(self, cmd, payload=b"", flush=True):
         """Send an MSP v2 request."""
-        # Flush any stale response data from previous commands
-        if self._ser.in_waiting:
-            self._ser.read(self._ser.in_waiting)
+        # Only flush stale data for non-pipelined requests
+        if flush:
+            if self._ser.in_waiting:
+                self._ser.read(self._ser.in_waiting)
+            self._rxbuf = b""
         frame = msp_v2_encode(cmd, payload)
         self._ser.write(frame)
 
     def _recv(self, expected_cmd=None, timeout=None):
         """Receive and decode an MSP v2 response.
 
-        Reads bytes until a complete valid frame is found or timeout.
-        Handles false $X matches inside binary payload data.
+        Uses a persistent receive buffer (_rxbuf) so that extra bytes
+        read from serial are preserved across calls - essential for
+        pipelined reads where multiple responses arrive back-to-back.
         Returns (cmd, payload) or None.
         """
         if timeout is None:
             timeout = self.timeout
 
-        buf = b""
         deadline = time.monotonic() + timeout
 
         while time.monotonic() < deadline:
+            # Read any available serial data into persistent buffer
             waiting = self._ser.in_waiting
             if waiting > 0:
-                buf += self._ser.read(waiting)
-            else:
-                # Small sleep to avoid busy-wait
-                time.sleep(0.002)
+                self._rxbuf += self._ser.read(waiting)
+            elif len(self._rxbuf) == 0:
+                # Nothing buffered and nothing waiting - brief sleep
+                time.sleep(0.0005)
                 continue
 
-            # Try to decode — may need to skip false $X in binary data
+            # Try to decode a frame from the buffer
             search_start = 0
             while True:
-                idx = buf.find(b"$X", search_start)
+                idx = self._rxbuf.find(b"$X", search_start)
                 if idx < 0:
+                    # No frame start found - discard obvious garbage
+                    # but keep tail that might be start of a partial frame
+                    if len(self._rxbuf) > 2:
+                        self._rxbuf = self._rxbuf[-2:]
                     break
 
-                result = msp_v2_decode(buf[idx:])
+                # Need at least 9 bytes for header: $X> + flag(1) + cmd(2) + size(2) + crc(1)
+                if len(self._rxbuf) - idx < 9:
+                    break  # Incomplete header, wait for more data
+
+                # Check direction byte
+                direction = self._rxbuf[idx + 2:idx + 3]
+                if direction == b"!":
+                    # Error frame - skip it
+                    search_start = idx + 1
+                    continue
+
+                # Parse size to check if full frame is available
+                size = struct.unpack_from("<H", self._rxbuf, idx + 6)[0]
+                frame_len = 8 + size + 1  # header(8) + payload + crc(1)
+
+                if len(self._rxbuf) - idx < frame_len:
+                    break  # Incomplete frame, wait for more data
+
+                # Full frame available - try decode
+                result = msp_v2_decode(self._rxbuf[idx:idx + frame_len])
                 if result is not None:
                     cmd, payload = result
                     if expected_cmd is None or cmd == expected_cmd:
+                        # Consume this frame from the buffer
+                        self._rxbuf = self._rxbuf[idx + frame_len:]
                         return result
-                # This $X was a false match or wrong cmd — try next one
+
+                # CRC mismatch or wrong cmd - skip this $X marker
                 search_start = idx + 1
+
+            # If buffer has partial data but no new bytes arrived from
+            # serial, sleep briefly to avoid hot-spinning.  Without this,
+            # the loop burns 100% CPU while waiting for the rest of a
+            # frame, which starves USB servicing in heavy processes
+            # (numpy/scipy loaded) and causes cascading slowdowns.
+            if waiting == 0:
+                time.sleep(0.0002)
 
         return None
 
@@ -350,7 +397,7 @@ class INAVDevice:
             total_size (int): Total flash size in bytes
             used_size (int): Used flash size in bytes
         """
-        # Retry up to 3 times — first attempt after get_info() can
+        # Retry up to 3 times - first attempt after get_info() can
         # hit stale serial data on some FCs
         for attempt in range(3):
             payload = self._request(MSP_DATAFLASH_SUMMARY)
@@ -373,7 +420,7 @@ class INAVDevice:
             "used_size": used_size,
         }
 
-    def read_dataflash_chunk(self, address, size=1024):
+    def read_dataflash_chunk(self, address, size=4096):
         """Read a chunk of dataflash at the given address.
 
         Args:
@@ -402,9 +449,44 @@ class INAVDevice:
 
         return (resp_addr, data)
 
+    def _send_dataflash_read(self, address, size=4096):
+        """Send a dataflash read request WITHOUT waiting for response.
+
+        Used for pipelining - fire multiple requests, collect responses later.
+        Returns True if sent, False on write failure (buffer full).
+        """
+        req = struct.pack("<IH", address, size)
+        frame = msp_v2_encode(MSP_DATAFLASH_READ, req)
+        try:
+            self._ser.write(frame)
+            return True
+        except serial.SerialTimeoutException:
+            return False
+
+    def _recv_dataflash_chunk(self, timeout=5.0):
+        """Receive a single dataflash read response.
+
+        Returns (address, data_bytes) or None on timeout.
+        """
+        result = self._recv(expected_cmd=MSP_DATAFLASH_READ, timeout=timeout)
+        if result is None:
+            return None
+        payload = result[1]
+        if not payload or len(payload) < 5:
+            return None
+        resp_addr = struct.unpack_from("<I", payload, 0)[0]
+        data = payload[4:]
+        if len(data) == 0:
+            return None
+        return (resp_addr, data)
+
     def download_blackbox(self, output_dir="./blackbox", erase_after=False,
                           progress_callback=None):
         """Download entire blackbox log from dataflash.
+
+        Uses pipelined MSP reads for maximum throughput - multiple read
+        requests are sent before collecting responses, eliminating idle
+        time between round-trips.
 
         Args:
             output_dir: Directory to save the .bbl file
@@ -449,61 +531,204 @@ class INAVDevice:
         os.makedirs(output_dir, exist_ok=True)
         filepath = os.path.join(output_dir, filename)
 
-        # Download in chunks — 2048 bytes works reliably over MSP serial at 115200
-        chunk_size = 2048
-        address = 0
+        # ── Determine optimal chunk size ──
+        # Start with a single request to probe actual response size.
+        # The FC returns MIN(requested, buffer_space, remaining_data).
+        # Typical: 2048 on F4, 4096 on F7/H7 targets.
+        probe = self.read_dataflash_chunk(0, 4096)
+        if probe is None:
+            # Fall back to smaller chunk
+            probe = self.read_dataflash_chunk(0, 1024)
+            if probe is None:
+                print("  ERROR: Cannot read dataflash")
+                return None
+
+        chunk_size = len(probe[1])
+        # Pipeline depth: how many requests to keep in-flight.
+        # USB VCP has limited buffer - too many in-flight fills the FC's
+        # USB output buffer and causes write timeouts. 4 is safe for F4/F7/H7.
+        pipeline_depth = 4 if chunk_size >= 1024 else 1
+
         data_buf = bytearray()
+        data_buf.extend(probe[1])  # Already have first chunk
+        address = len(probe[1])
+
+        start_time = time.monotonic()
         retries = 0
         max_retries = 10
-        start_time = time.monotonic()
 
-        print(f"  Downloading {used / 1024:.0f}KB of blackbox data...")
+        print(f"  Downloading {used / 1024:.0f}KB ({chunk_size}B chunks, "
+              f"pipeline={pipeline_depth})...")
 
-        while address < used:
-            chunk = self.read_dataflash_chunk(address, chunk_size)
+        # ── Pipelined download loop ──
+        # Strategy: keep N requests in flight at all times.
+        # Fire N requests, then enter a loop: receive 1 response, fire 1 request.
+        # This keeps the FC busy reading flash while we process the previous chunk.
 
-            if chunk is None:
-                retries += 1
-                if retries > max_retries:
-                    print(f"\n  ERROR: Too many read errors at offset {address}")
-                    return None
-                # Increasing backoff on retries
-                time.sleep(0.05 * retries)
-                # Flush and resync
-                if self._ser.in_waiting:
-                    self._ser.read(self._ser.in_waiting)
-                continue
+        if pipeline_depth > 1:
+            # Flush any stale data
+            if self._ser.in_waiting:
+                self._ser.read(self._ser.in_waiting)
+            self._rxbuf = b""
 
-            retries = 0
-            resp_addr, data = chunk
+            in_flight = 0
+            next_send_addr = address
 
-            # Verify we got the expected address
-            if resp_addr != address:
-                # FC returned different address — adjust
-                address = resp_addr
+            # Prime the pipeline gradually to avoid overwhelming USB buffer
+            while in_flight < pipeline_depth and next_send_addr < used:
+                if not self._send_dataflash_read(next_send_addr, chunk_size):
+                    # Write failed - drain some responses first
+                    time.sleep(0.01)
+                    if self._ser.in_waiting:
+                        self._rxbuf += self._ser.read(self._ser.in_waiting)
+                    if not self._send_dataflash_read(next_send_addr, chunk_size):
+                        break  # Still failing, proceed with what we have
+                next_send_addr += chunk_size
+                in_flight += 1
+                # Small delay between initial sends to let FC start processing
+                if in_flight < pipeline_depth:
+                    time.sleep(0.002)
 
-            data_buf.extend(data)
-            address += len(data)
+            drain_retries = 0
+            max_drain_retries = 5
+            while in_flight > 0 or next_send_addr < used:
+                # Re-prime if pipeline drained but work remains
+                if in_flight == 0 and next_send_addr < used:
+                    # Flush any stale data in buffers before re-priming
+                    if self._ser.in_waiting:
+                        self._ser.read(self._ser.in_waiting)
+                    self._rxbuf = b""
+                    time.sleep(0.05 * (drain_retries + 1))
 
-            # Progress
-            elapsed = time.monotonic() - start_time
-            speed = len(data_buf) / elapsed if elapsed > 0 else 0
-            pct = min(100, address * 100 // used)
+                    while in_flight < pipeline_depth and next_send_addr < used:
+                        if self._send_dataflash_read(next_send_addr, chunk_size):
+                            next_send_addr += chunk_size
+                            in_flight += 1
+                            time.sleep(0.002)
+                        else:
+                            time.sleep(0.01)
+                            break
 
-            bar_width = 20
-            filled = bar_width * pct // 100
-            bar = "█" * filled + "░" * (bar_width - filled)
-            print(f"\r  Downloading: {pct:3d}% [{bar}] "
-                  f"{len(data_buf) / 1024:.0f}KB / {used / 1024:.0f}KB  "
-                  f"{speed / 1024:.0f}KB/s", end="", flush=True)
+                if in_flight == 0:
+                    drain_retries += 1
+                    if drain_retries > max_drain_retries:
+                        print(f"\n  ERROR: Download stalled at {len(data_buf)/1024:.0f}KB "
+                              f"({address * 100 // used}%) - FC stopped responding")
+                        return None
+                    continue  # retry re-prime
 
-            if progress_callback:
-                progress_callback(len(data_buf), used)
+                # Receive one response
+                result = self._recv_dataflash_chunk(timeout=5.0)
+
+                if result is None:
+                    retries += 1
+                    if retries > max_retries:
+                        print(f"\n  ERROR: Too many read errors at offset {address}")
+                        return None
+                    # Re-send all in-flight requests from current address
+                    time.sleep(0.05 * retries)
+                    if self._ser.in_waiting:
+                        self._ser.read(self._ser.in_waiting)
+                    self._rxbuf = b""
+                    in_flight = 0
+                    next_send_addr = address
+                    while in_flight < pipeline_depth and next_send_addr < used:
+                        if not self._send_dataflash_read(next_send_addr, chunk_size):
+                            time.sleep(0.01)
+                            if not self._send_dataflash_read(next_send_addr, chunk_size):
+                                break
+                        next_send_addr += chunk_size
+                        in_flight += 1
+                        time.sleep(0.002)
+                    continue
+
+                retries = 0
+                drain_retries = 0
+                resp_addr, data = result
+
+                # Handle out-of-order or duplicate responses
+                if resp_addr == address:
+                    data_buf.extend(data)
+                    address += len(data)
+                    in_flight -= 1
+
+                    # Send next request to keep pipeline full
+                    if next_send_addr < used:
+                        if self._send_dataflash_read(next_send_addr, chunk_size):
+                            next_send_addr += chunk_size
+                            in_flight += 1
+                        else:
+                            # Write failed - FC buffer full, just continue draining
+                            pass
+                else:
+                    # Got unexpected address - drain pipeline, resync
+                    in_flight -= 1
+                    if resp_addr > address:
+                        address = resp_addr
+                        data_buf.extend(data)
+                        address += len(data)
+
+                # Progress
+                elapsed = time.monotonic() - start_time
+                speed = len(data_buf) / elapsed if elapsed > 0 else 0
+                pct = min(100, address * 100 // used)
+                bar_width = 20
+                filled = bar_width * pct // 100
+                bar = "█" * filled + "░" * (bar_width - filled)
+                print(f"\r  Downloading: {pct:3d}% [{bar}] "
+                      f"{len(data_buf) / 1024:.0f}KB / {used / 1024:.0f}KB  "
+                      f"{speed / 1024:.0f}KB/s", end="", flush=True)
+
+                if progress_callback:
+                    progress_callback(len(data_buf), used)
+
+        else:
+            # Simple sequential download (fallback for tiny chunks)
+            while address < used:
+                chunk = self.read_dataflash_chunk(address, chunk_size)
+
+                if chunk is None:
+                    retries += 1
+                    if retries > max_retries:
+                        print(f"\n  ERROR: Too many read errors at offset {address}")
+                        return None
+                    time.sleep(0.05 * retries)
+                    if self._ser.in_waiting:
+                        self._ser.read(self._ser.in_waiting)
+                    continue
+
+                retries = 0
+                resp_addr, data = chunk
+                if resp_addr != address:
+                    address = resp_addr
+                data_buf.extend(data)
+                address += len(data)
+
+                elapsed = time.monotonic() - start_time
+                speed = len(data_buf) / elapsed if elapsed > 0 else 0
+                pct = min(100, address * 100 // used)
+                bar_width = 20
+                filled = bar_width * pct // 100
+                bar = "█" * filled + "░" * (bar_width - filled)
+                print(f"\r  Downloading: {pct:3d}% [{bar}] "
+                      f"{len(data_buf) / 1024:.0f}KB / {used / 1024:.0f}KB  "
+                      f"{speed / 1024:.0f}KB/s", end="", flush=True)
+
+                if progress_callback:
+                    progress_callback(len(data_buf), used)
 
         print()  # newline after progress bar
 
         elapsed = time.monotonic() - start_time
         avg_speed = len(data_buf) / elapsed if elapsed > 0 else 0
+
+        # Completeness check - don't save partial downloads as success
+        completeness = len(data_buf) / used if used > 0 else 1.0
+        if completeness < 0.95:
+            print(f"  ✖ Download incomplete: {len(data_buf)/1024:.0f}KB of {used/1024:.0f}KB "
+                  f"({completeness*100:.0f}%)")
+            print(f"    Try: unplug/replug USB and retry")
+            return None
 
         # Write file
         with open(filepath, "wb") as f:
@@ -523,7 +748,7 @@ class INAVDevice:
         print("  Erasing dataflash...", end="", flush=True)
         self._send(MSP_DATAFLASH_ERASE)
 
-        # Erase can take a while — poll until ready
+        # Erase can take a while - poll until ready
         for _ in range(60):  # up to 30 seconds
             time.sleep(0.5)
             summary = self.get_dataflash_summary()
@@ -633,7 +858,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="INAV MSP — Download blackbox logs directly from flight controller")
+        description="INAV MSP - Download blackbox logs directly from flight controller")
     parser.add_argument("--device", "-d", default="auto",
                         help="Serial port (e.g., /dev/ttyACM0) or 'auto' to scan")
     parser.add_argument("--baud", type=int, default=115200,
