@@ -36,6 +36,54 @@ warnings.filterwarnings("ignore", message=".*tight_layout.*")
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
+def _enable_ansi_colors():
+    """Enable ANSI color support. Returns True if colors are available.
+
+    Respects NO_COLOR environment variable (https://no-color.org/).
+    On Windows 10+, enables VT100 processing in the console.
+    On Linux/macOS, ANSI is natively supported in all terminals.
+    Returns False if stdout is not a terminal (piped/redirected).
+    """
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+
+    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
+        return False
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            # STD_OUTPUT_HANDLE = -11
+            handle = kernel32.GetStdHandle(-11)
+            # Get current mode
+            mode = ctypes.c_ulong()
+            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+            return True
+        except Exception:
+            return False
+
+    return True  # Linux/macOS always support ANSI
+
+_ANSI_ENABLED = _enable_ansi_colors()
+
+def _colors():
+    """Return (R, B, C, G, Y, RED, DIM) color codes.
+
+    Returns ANSI codes when colors are enabled, empty strings otherwise.
+    """
+    if _ANSI_ENABLED:
+        return ("\033[0m", "\033[1m", "\033[96m", "\033[92m",
+                "\033[93m", "\033[91m", "\033[2m")
+    return ("", "", "", "", "", "", "")
+
+def _disable_colors():
+    """Disable ANSI colors (called by --no-color)."""
+    global _ANSI_ENABLED
+    _ANSI_ENABLED = False
+
 AXIS_NAMES = ["Roll", "Pitch", "Yaw"]
 AXIS_COLORS = ["#FF6B6B", "#4ECDC4", "#FFD93D"]
 MOTOR_COLORS = ["#FF6B6B", "#4ECDC4", "#FFD93D", "#A78BFA"]
@@ -3101,9 +3149,8 @@ def format_nav_report(nav_results, use_color=True):
     if nav_results is None:
         return ""
 
-    if use_color:
-        G, Y, RED, DIM, R, BOLD = (
-            "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m", "\033[1m")
+    if use_color and _ANSI_ENABLED:
+        R, BOLD, _C, G, Y, RED, DIM = _colors()
     else:
         G = Y = RED = DIM = R = BOLD = ""
 
@@ -4041,7 +4088,7 @@ def generate_narrative(plan, pid_results, motor_analysis, noise_results, config,
 # ─── Terminal Output ──────────────────────────────────────────────────────────
 
 def print_terminal_report(plan, noise_results, pid_results, motor_analysis, config, data, show_narrative=True, profile=None):
-    R, B, C, G, Y, RED, DIM = "\033[0m", "\033[1m", "\033[96m", "\033[92m", "\033[93m", "\033[91m", "\033[2m"
+    R, B, C, G, Y, RED, DIM = _colors()
     scores = plan["scores"]
     overall = scores["overall"]
 
@@ -4840,7 +4887,7 @@ def main():
     # Device communication
     parser.add_argument("--device", metavar="PORT",
                         help="Download blackbox from FC via serial. Use 'auto' to scan "
-                             "or specify port (e.g., /dev/ttyACM0).")
+                             "or specify port (e.g., /dev/ttyACM0, COM3).")
     parser.add_argument("--erase", action="store_true",
                         help="Erase dataflash after successful download.")
     parser.add_argument("--download-only", action="store_true",
@@ -4865,6 +4912,8 @@ def main():
                              "Used with --cells to predict where prop noise will be.")
     parser.add_argument("--no-narrative", action="store_true",
                         help="Omit the plain-English description of the quad's behavior.")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable colored terminal output.")
     parser.add_argument("--diff", metavar="FILE", default=None,
                         help="Path to a CLI 'diff all' file for enriched analysis. "
                              "Adds config cross-referencing to nav and tuning results. "
@@ -4880,6 +4929,9 @@ def main():
     parser.add_argument("--history", action="store_true",
                         help="Show flight history and progression for the craft, then exit.")
     args = parser.parse_args()
+
+    if args.no_color:
+        _disable_colors()
 
     # ── Device mode: download blackbox from FC ──
     logfile = args.logfile
@@ -4911,7 +4963,9 @@ def main():
             print(f"  Found: {fc.port_path}")
         else:
             port = args.device
-            if not os.path.exists(port):
+            # On Windows, COM ports don't exist as filesystem paths
+            is_com = port.upper().startswith("COM")
+            if not is_com and not os.path.exists(port):
                 print(f"  ERROR: Port not found: {port}")
                 sys.exit(1)
             print(f"  Connecting: {port}")
@@ -5087,9 +5141,7 @@ def _process_multi_log(log_files, args, diff_raw):
     4. Show compact table of all flights with session boundaries
     5. Full analysis only on the selected flight
     """
-    R, B, C, G, Y, RED, DIM = (
-        "\033[0m", "\033[1m", "\033[96m", "\033[92m",
-        "\033[93m", "\033[91m", "\033[2m")
+    R, B, C, G, Y, RED, DIM = _colors()
 
     # ── Phase 1: Quick-scan all flights ──
     print(f"  Scanning {len(log_files)} flights...")
@@ -5231,7 +5283,7 @@ def _process_multi_log(log_files, args, diff_raw):
                 print(f"\n{B}{C}{'═' * 70}{R}")
                 print(f"  {B}FLIGHT PROGRESSION ({craft}):{R}")
                 trend_icon = {"improving": f"{G}↗ Improving",
-                              "degrading": f"\033[91m↘ Degrading",
+                              "degrading": f"{RED}↘ Degrading",
                               "stable": f"{Y}→ Stable"
                               }.get(prog["trend"],
                                     f"{DIM}? Insufficient data")
@@ -5303,9 +5355,7 @@ def _print_config_review(diff_raw, config, frame_inches, plan):
     Filter and PID findings are skipped since the flight-based analysis is
     more accurate for those.
     """
-    R, B, C, G, Y, RED, DIM = (
-        "\033[0m", "\033[1m", "\033[96m", "\033[92m",
-        "\033[93m", "\033[91m", "\033[2m")
+    R, B, C, G, Y, RED, DIM = _colors()
 
     try:
         from inav_param_analyzer import parse_diff_all, run_all_checks, CRITICAL, WARNING
@@ -5370,7 +5420,7 @@ def _print_config_review(diff_raw, config, frame_inches, plan):
 
 def _print_flight_history(db, craft):
     """Print flight history table for a craft."""
-    R, B, C, G, Y, RED, DIM = "\033[0m", "\033[1m", "\033[96m", "\033[92m", "\033[93m", "\033[91m", "\033[2m"
+    R, B, C, G, Y, RED, DIM = _colors()
     history = db.get_craft_history(craft, limit=20)
     if not history:
         print(f"  No flight history for '{craft}'")
@@ -5708,7 +5758,7 @@ def _analyze_single_log(logfile, args, diff_raw=None, summary_only=False):
         if osc_severe:
             tune_warning = True
             worst = max(osc_severe, key=lambda h: h["gyro_rms"])
-            Y, R, DIM = "\033[33m", "\033[0m", "\033[2m"
+            R, _B, _C, _G, Y, _RED, DIM = _colors()
             print(f"\n  {Y}! PID tuning incomplete - {worst['severity']} oscillation detected "
                   f"({worst['axis']} {worst['gyro_rms']:.0f} deg/s RMS){R}")
             print(f"  {DIM}  Nav readings (especially baro and compass) are affected by vibration.{R}")
@@ -5835,8 +5885,8 @@ def _analyze_single_log(logfile, args, diff_raw=None, summary_only=False):
             if n_flights >= 2:
                 prog = db.get_progression(craft)
                 if prog["changes"]:
-                    R, B, C, G, Y, DIM = "\033[0m", "\033[1m", "\033[96m", "\033[92m", "\033[93m", "\033[2m"
-                    trend_icon = {"improving": f"{G}↗ Improving", "degrading": f"\033[91m↘ Degrading",
+                    R, B, C, G, Y, RED, DIM = _colors()
+                    trend_icon = {"improving": f"{G}↗ Improving", "degrading": f"{RED}↘ Degrading",
                                   "stable": f"{Y}→ Stable"}.get(prog["trend"], "")
                     print(f"\n  {B}Progression:{R} {trend_icon}{R}")
                     for ch in prog["changes"]:

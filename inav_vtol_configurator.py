@@ -27,6 +27,39 @@ import textwrap
 
 VERSION = "1.0.1"
 
+
+def _enable_ansi_colors():
+    """Enable ANSI color support. Returns True if colors are available."""
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+            return True
+        except Exception:
+            return False
+    return True
+
+_ANSI_ENABLED = _enable_ansi_colors()
+
+def _colors():
+    """Return (R, B, C, G, Y, RED, DIM) color codes."""
+    if _ANSI_ENABLED:
+        return ("\033[0m", "\033[1m", "\033[96m", "\033[92m",
+                "\033[93m", "\033[91m", "\033[2m")
+    return ("", "", "", "", "", "", "")
+
+def _disable_colors():
+    global _ANSI_ENABLED
+    _ANSI_ENABLED = False
+
 # ─── Severity Levels ─────────────────────────────────────────────────────────
 
 CRITICAL = "CRITICAL"
@@ -678,8 +711,7 @@ def run_vtol_checks(parsed):
 
 def print_report(parsed, findings):
     """Print validation report to terminal."""
-    R, B, C, G, Y, RED, DIM = ("\033[0m", "\033[1m", "\033[96m",
-                                 "\033[92m", "\033[93m", "\033[91m", "\033[2m")
+    R, B, C, G, Y, RED, DIM = _colors()
     sev_color = {CRITICAL: RED, WARNING: Y, INFO: C, OK: G}
     sev_icon = {CRITICAL: "✗", WARNING: "⚠", INFO: "ℹ", OK: "✓"}
 
@@ -781,7 +813,12 @@ def main():
     parser.add_argument("difffile", help="INAV `diff all` output file")
     parser.add_argument("--json", action="store_true",
                         help="Output findings as JSON")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable colored terminal output.")
     args = parser.parse_args()
+
+    if args.no_color:
+        _disable_colors()
 
     if not os.path.isfile(args.difffile):
         print(f"ERROR: File not found: {args.difffile}")

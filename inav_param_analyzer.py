@@ -23,6 +23,39 @@ from datetime import datetime
 
 VERSION = "1.1.0"
 
+
+def _enable_ansi_colors():
+    """Enable ANSI color support. Returns True if colors are available."""
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+            return True
+        except Exception:
+            return False
+    return True
+
+_ANSI_ENABLED = _enable_ansi_colors()
+
+def _colors():
+    """Return (R, B, C, G, Y, RED, DIM) color codes."""
+    if _ANSI_ENABLED:
+        return ("\033[0m", "\033[1m", "\033[96m", "\033[92m",
+                "\033[93m", "\033[91m", "\033[2m")
+    return ("", "", "", "", "", "", "")
+
+def _disable_colors():
+    global _ANSI_ENABLED
+    _ANSI_ENABLED = False
+
 # ─── Severity Levels ─────────────────────────────────────────────────────────
 
 CRITICAL = "CRITICAL"      # Safety risk, could crash or lose the quad
@@ -266,7 +299,7 @@ def generate_setup_config(frame_inches, voltage="4S", use_case="longrange"):
 
 def print_setup_report(config):
     """Print the setup configuration as a readable report with CLI commands."""
-    R, B, C, G, Y, DIM = "\033[0m", "\033[1m", "\033[96m", "\033[92m", "\033[93m", "\033[2m"
+    R, B, C, G, Y, _RED, DIM = _colors()
 
     profile = config["profile"]
     frame = config["frame"]
@@ -1408,7 +1441,7 @@ def check_crossref_blackbox(parsed, bb_state):
 # ─── Terminal Output ─────────────────────────────────────────────────────────
 
 def print_report(parsed, findings, frame_inches=None):
-    R, B, C, G, Y, RED, DIM = "\033[0m", "\033[1m", "\033[96m", "\033[92m", "\033[93m", "\033[91m", "\033[2m"
+    R, B, C, G, Y, RED, DIM = _colors()
 
     sev_color = {CRITICAL: RED, WARNING: Y, INFO: C, OK: G}
     sev_icon = {CRITICAL: "✗", WARNING: "⚠", INFO: "ℹ", OK: "✓"}
@@ -1524,7 +1557,12 @@ def main():
                         help="Generate starting configuration for a new quad (7/10/12/15)")
     parser.add_argument("--voltage", type=str, metavar="CELLS", default="4S",
                         help="Battery voltage for --setup (4S/6S/8S/12S, default: 4S)")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable colored terminal output.")
     args = parser.parse_args()
+
+    if args.no_color:
+        _disable_colors()
 
     # ─── Setup mode ───────────────────────────────────────────────────────
     if args.setup:
@@ -1550,7 +1588,7 @@ def main():
             parsed = parse_diff_all(text)
             profile = get_active_control(parsed)
 
-            R, B, C, G, Y, DIM = "\033[0m", "\033[1m", "\033[96m", "\033[92m", "\033[93m", "\033[2m"
+            R, B, C, G, Y, _RED, DIM = _colors()
             print(f"  {B}COMPARISON WITH CURRENT CONFIG ({args.difffile}):{R}")
             print(f"             {'Current':>8} {'Suggested':>10} {'Change':>8}")
 
